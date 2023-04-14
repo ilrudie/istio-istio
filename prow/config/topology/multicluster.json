@@ -4,7 +4,10 @@
     "clusterName": "primary",
     "podSubnet": "10.10.0.0/16",
     "svcSubnet": "10.255.10.0/24",
-    "network": "network-1"
+    "network": "network-1",
+    "meta": {
+        "kubeconfig": "~/artifacts/kubeconfig/primary"
+    }
   },
   {
     "kind": "Kubernetes",
@@ -14,14 +17,8 @@
     "network": "network-1",
     "primaryClusterName": "primary",
     "meta": {
+      "kubeconfig": "~/artifacts/kubeconfig/remote",
       "fakeVM": false
     }
-  },
-  {
-    "kind": "Kubernetes",
-    "clusterName": "cross-network-primary",
-    "podSubnet": "10.30.0.0/16",
-    "svcSubnet": "10.255.30.0/24",
-    "network": "network-2"
   }
 ]
