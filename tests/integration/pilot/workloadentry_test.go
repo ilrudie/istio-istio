@@ -26,9 +26,9 @@ import (
 	"istio.io/istio/pkg/test/framework"
 	"istio.io/istio/pkg/test/framework/components/echo"
 	"istio.io/istio/pkg/test/framework/components/echo/check"
-	"istio.io/istio/pkg/test/framework/components/echo/common/deployment"
+	commonDeployment "istio.io/istio/pkg/test/framework/components/echo/common/deployment"
 	"istio.io/istio/pkg/test/framework/components/echo/common/ports"
-	"istio.io/istio/pkg/test/framework/components/echo/kube"
+	"istio.io/istio/pkg/test/framework/components/echo/deployment"
 	"istio.io/istio/pkg/test/framework/components/istio"
 	"istio.io/istio/pkg/test/framework/resource/config/apply"
 	"istio.io/istio/pkg/test/util/retry"
@@ -45,20 +45,18 @@ func TestWorkloadEntry(t *testing.T) {
 				t.Fatal(err)
 			}
 			clusterCfg := t.Clusters().Default()
-			localNetName := clusterCfg.NetworkName()
+			namespaceName := apps.Namespace.Name()
 
-			z := echo.Config{
-				Service:         "z",
-				ServiceAccount:  true,
-				Ports:           ports.All(),
-				Subsets:         []echo.SubsetConfig{{}},
-				IncludeExtAuthz: false,
-			}
-			zDeployYaml, err := kube.GenerateDeployment(t, z, nil)
-			zSvcYaml, err := kube.GenerateService(z)
-
-			t.ConfigKube(clusterCfg).YAML(apps.Namespace.Name(), zDeployYaml).Apply(apply.CleanupConditionally)
-			t.ConfigKube(clusterCfg).YAML(apps.Namespace.Name(), zSvcYaml).Apply(apply.CleanupConditionally)
+			// Create a echo deployment "z" in the echos namespace.
+			t.Logf("Deploy an echo instance in namespace %s on cluster %s", namespaceName, clusterCfg.Name())
+			deployment.New(t, clusterCfg).
+				WithConfig(echo.Config{
+					Service:        "z",
+					ServiceAccount: true,
+					Namespace:      apps.Namespace,
+					Ports:          ports.All(),
+					Subsets:        []echo.SubsetConfig{{}},
+				}).BuildOrFail(t)
 
 			// Define an AUTO_PASSTHROUGH EW gateway
 			gatewayCfg := `apiVersion: networking.istio.io/v1alpha3
@@ -89,6 +87,7 @@ spec:
 				t.Skipf("Skipping test, eastwest gateway is probably not deployed for cluster %s", clusterCfg.Name())
 			}
 
+			// Define ServiceEntry & WorkloadEntry for test
 			workloadEntryYaml := fmt.Sprintf(`apiVersion: networking.istio.io/v1beta1
 kind: ServiceEntry
 metadata:
@@ -121,13 +120,12 @@ spec:
     http: %v
   address: %s`, ewGatewayPort, ewGatewayIP)
 
-			aNamespace := apps.A.Instances().NamespaceName()
-			if err := t.ConfigIstio().YAML(aNamespace, workloadEntryYaml).Apply(apply.CleanupConditionally); err != nil {
+			// Configure ServiceEntry & WorkloadEntry
+			if err := t.ConfigIstio().YAML(namespaceName, workloadEntryYaml).Apply(apply.CleanupConditionally); err != nil {
 				t.Fatal(err)
 			}
 
 			srcs := apps.All.Instances()
-			localClusterNames := t.Clusters().Remotes().ForNetworks(localNetName).Names() // test isn't particularly meaninful on the primary cluster
 			for _, src := range srcs {
 				srcName := src.Config().NamespacedName().Name
 				// Skipping tests for these workloads:
@@ -135,25 +133,12 @@ spec:
 				//      naked
 				//      proxyless-grpc
 				//      vm
-				if srcName == deployment.ProxylessGRPCSvc || srcName == deployment.NakedSvc || srcName == deployment.ExternalSvc || srcName == deployment.VMSvc {
+				if srcName == commonDeployment.ProxylessGRPCSvc || srcName == commonDeployment.NakedSvc || srcName == commonDeployment.ExternalSvc || srcName == commonDeployment.VMSvc {
 					continue
 				}
-				var skip bool
 				srcCluster := src.Config().Cluster.Name()
-				for _, localClusterName := range localClusterNames {
-					if srcCluster != localClusterName {
-						skip = true //TODO: bad form to need local network, test should be updated to be multi-network
-						t.Logf("Skipping %s on %s", srcName, srcCluster)
-					}
-				}
-				if skip {
-					// continue
-				}
-				// expected := cluster.Clusters{t.AllClusters().ForNetworks(localNetName).Default()}
-				// expected := t.AllClusters().ForNetworks(localNetName).Default().Name()
 				// Assert that non-skipped workloads can reach the service which includes our workload entry
 				t.NewSubTestf("%s in %s to ServiceEntry+WorkloadEntry Responds with 200", srcName, srcCluster).Run(func(t framework.TestContext) {
-					// src.Clusters().Remotes().ForNetworks(localNetName).
 					src.CallOrFail(t, echo.CallOptions{
 						Address: "serviceentry.mesh.global",
 						Port:    echo.Port{Name: "http", ServicePort: 80},
@@ -161,9 +146,6 @@ spec:
 						HTTP: echo.HTTP{
 							Path: "/path",
 						},
-						// Count: 2,
-						// Check: check.And(check.OK(), check.ReachedClusters(t.AllClusters(), expected)),
-						// Check:                   check.And(check.OK(), check.Cluster(expected)),
 						Check:                   check.OK(),
 						NewConnectionPerRequest: true,
 						Retry: echo.Retry{
