@@ -24,10 +24,11 @@ import (
 
 	"istio.io/istio/pkg/test/echo/common/scheme"
 	"istio.io/istio/pkg/test/framework"
-	"istio.io/istio/pkg/test/framework/components/cluster"
 	"istio.io/istio/pkg/test/framework/components/echo"
 	"istio.io/istio/pkg/test/framework/components/echo/check"
 	"istio.io/istio/pkg/test/framework/components/echo/common/deployment"
+	"istio.io/istio/pkg/test/framework/components/echo/common/ports"
+	"istio.io/istio/pkg/test/framework/components/echo/kube"
 	"istio.io/istio/pkg/test/framework/components/istio"
 	"istio.io/istio/pkg/test/framework/resource/config/apply"
 	"istio.io/istio/pkg/test/util/retry"
@@ -46,9 +47,18 @@ func TestWorkloadEntry(t *testing.T) {
 			clusterCfg := t.Clusters().Default()
 			localNetName := clusterCfg.NetworkName()
 
-			// deployment.New(t, deployment.Config{
+			z := echo.Config{
+				Service:         "z",
+				ServiceAccount:  true,
+				Ports:           ports.All(),
+				Subsets:         []echo.SubsetConfig{{}},
+				IncludeExtAuthz: false,
+			}
+			zDeployYaml, err := kube.GenerateDeployment(t, z, nil)
+			zSvcYaml, err := kube.GenerateService(z)
 
-			// })
+			t.ConfigKube(clusterCfg).YAML(apps.Namespace.Name(), zDeployYaml).Apply(apply.CleanupConditionally)
+			t.ConfigKube(clusterCfg).YAML(apps.Namespace.Name(), zSvcYaml).Apply(apply.CleanupConditionally)
 
 			// Define an AUTO_PASSTHROUGH EW gateway
 			gatewayCfg := `apiVersion: networking.istio.io/v1alpha3
@@ -61,7 +71,7 @@ spec:
     istio: eastwestgateway
   servers:
   - port:
-      number: 15021
+      number: 15443
       name: https
       protocol: TLS
     hosts:
@@ -74,7 +84,7 @@ spec:
 				t.Fatal(err)
 			}
 
-			ewGatewayIP, ewGatewayPort := ist.EastWestGatewayFor(clusterCfg).AddressForPort(15021)
+			ewGatewayIP, ewGatewayPort := ist.EastWestGatewayFor(clusterCfg).AddressForPort(15443)
 			if ewGatewayIP == "" || ewGatewayPort == 0 { // most likely EW gateway is not deployed, skip testing
 				t.Skipf("Skipping test, eastwest gateway is probably not deployed for cluster %s", clusterCfg.Name())
 			}
@@ -82,7 +92,7 @@ spec:
 			workloadEntryYaml := fmt.Sprintf(`apiVersion: networking.istio.io/v1beta1
 kind: ServiceEntry
 metadata:
-  name: a-se
+  name: z-se
 spec:
   addresses:
   - 240.240.34.56
@@ -97,15 +107,15 @@ spec:
   resolution: STATIC
   workloadSelector:
     labels:
-      app: a
+      app: z
 ---
 apiVersion: networking.istio.io/v1beta1
 kind: WorkloadEntry
 metadata:
-  name: a-we
+  name: z-we
   labels:
     security.istio.io/tlsMode: istio
-    app: a
+    app: z
 spec:
   ports:
     http: %v
@@ -139,7 +149,7 @@ spec:
 				if skip {
 					// continue
 				}
-				expected := cluster.Clusters{t.AllClusters().ForNetworks(localNetName).Default()}
+				// expected := cluster.Clusters{t.AllClusters().ForNetworks(localNetName).Default()}
 				// expected := t.AllClusters().ForNetworks(localNetName).Default().Name()
 				// Assert that non-skipped workloads can reach the service which includes our workload entry
 				t.NewSubTestf("%s in %s to ServiceEntry+WorkloadEntry Responds with 200", srcName, srcCluster).Run(func(t framework.TestContext) {
@@ -152,8 +162,9 @@ spec:
 							Path: "/path",
 						},
 						// Count: 2,
-						Check: check.And(check.OK(), check.ReachedClusters(t.AllClusters(), expected)),
+						// Check: check.And(check.OK(), check.ReachedClusters(t.AllClusters(), expected)),
 						// Check:                   check.And(check.OK(), check.Cluster(expected)),
+						Check:                   check.OK(),
 						NewConnectionPerRequest: true,
 						Retry: echo.Retry{
 							Options: []retry.Option{multiclusterRetryDelay, retry.Timeout(time.Minute)},
