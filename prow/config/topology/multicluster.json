@@ -6,7 +6,7 @@
     "svcSubnet": "10.255.10.0/24",
     "network": "network-1",
     "meta": {
-        "kubeconfig": "~/artifacts/kubeconfig/primary"
+        "kubeconfig": "/home/ianrudie/code/github/istio/istio/artifacts/kubeconfig/primary"
     }
   },
   {
@@ -17,8 +17,18 @@
     "network": "network-1",
     "primaryClusterName": "primary",
     "meta": {
-      "kubeconfig": "~/artifacts/kubeconfig/remote",
+      "kubeconfig": "/home/ianrudie/code/github/istio/istio/artifacts/kubeconfig/remote",
       "fakeVM": false
+    }
+  },
+  {
+    "kind": "Kubernetes",
+    "clusterName": "cross-network-primary",
+    "podSubnet": "10.30.0.0/16",
+    "svcSubnet": "10.255.30.0/24",
+    "network": "network-2",
+    "meta": {
+        "kubeconfig": "/home/ianrudie/code/github/istio/istio/artifacts/kubeconfig/cross-network-primary"
     }
   }
 ]

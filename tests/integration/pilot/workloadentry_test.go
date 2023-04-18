@@ -46,6 +46,10 @@ func TestWorkloadEntry(t *testing.T) {
 			clusterCfg := t.Clusters().Default()
 			localNetName := clusterCfg.NetworkName()
 
+			// deployment.New(t, deployment.Config{
+
+			// })
+
 			// Define an AUTO_PASSTHROUGH EW gateway
 			gatewayCfg := `apiVersion: networking.istio.io/v1alpha3
 kind: Gateway
@@ -57,11 +61,11 @@ spec:
     istio: eastwestgateway
   servers:
   - port:
-      number: 15443
+      number: 15021
       name: https
       protocol: TLS
     hosts:
-    - serviceentry.mesh.cluster.local
+    - serviceentry.mesh.global
     tls:
       mode: AUTO_PASSTHROUGH
 `
@@ -70,7 +74,7 @@ spec:
 				t.Fatal(err)
 			}
 
-			ewGatewayIP, ewGatewayPort := ist.EastWestGatewayFor(clusterCfg).AddressForPort(15443)
+			ewGatewayIP, ewGatewayPort := ist.EastWestGatewayFor(clusterCfg).AddressForPort(15021)
 			if ewGatewayIP == "" || ewGatewayPort == 0 { // most likely EW gateway is not deployed, skip testing
 				t.Skipf("Skipping test, eastwest gateway is probably not deployed for cluster %s", clusterCfg.Name())
 			}
@@ -83,7 +87,7 @@ spec:
   addresses:
   - 240.240.34.56
   hosts:
-  - serviceentry.mesh.cluster.local
+  - serviceentry.mesh.global
   ports:
   - name: http
     number: 80
@@ -101,14 +105,11 @@ metadata:
   name: a-we
   labels:
     security.istio.io/tlsMode: istio
+    app: a
 spec:
-  network: other
   ports:
     http: %v
-  address: %s
-  labels:
-    security.istio.io/tlsMode: istio
-    app: a`, ewGatewayPort, ewGatewayIP)
+  address: %s`, ewGatewayPort, ewGatewayIP)
 
 			aNamespace := apps.A.Instances().NamespaceName()
 			if err := t.ConfigIstio().YAML(aNamespace, workloadEntryYaml).Apply(apply.CleanupConditionally); err != nil {
@@ -139,20 +140,23 @@ spec:
 					// continue
 				}
 				expected := cluster.Clusters{t.AllClusters().ForNetworks(localNetName).Default()}
+				// expected := t.AllClusters().ForNetworks(localNetName).Default().Name()
 				// Assert that non-skipped workloads can reach the service which includes our workload entry
 				t.NewSubTestf("%s in %s to ServiceEntry+WorkloadEntry Responds with 200", srcName, srcCluster).Run(func(t framework.TestContext) {
 					// src.Clusters().Remotes().ForNetworks(localNetName).
 					src.CallOrFail(t, echo.CallOptions{
-						Address: "serviceentry.mesh.cluster.local",
+						Address: "serviceentry.mesh.global",
 						Port:    echo.Port{Name: "http", ServicePort: 80},
 						Scheme:  scheme.HTTP,
 						HTTP: echo.HTTP{
 							Path: "/path",
 						},
-						Check:                   check.And(check.OK(), check.ReachedClusters(t.AllClusters(), expected)),
+						// Count: 2,
+						Check: check.And(check.OK(), check.ReachedClusters(t.AllClusters(), expected)),
+						// Check:                   check.And(check.OK(), check.Cluster(expected)),
 						NewConnectionPerRequest: true,
 						Retry: echo.Retry{
-							Options: []retry.Option{multiclusterRetryDelay, retry.Timeout(2 * time.Minute)},
+							Options: []retry.Option{multiclusterRetryDelay, retry.Timeout(time.Minute)},
 						},
 					})
 				})
