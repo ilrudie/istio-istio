@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"math"
 	"net"
+	"os/exec"
 	"strconv"
 
 	netns "github.com/containernetworking/plugins/pkg/ns"
@@ -59,6 +60,10 @@ func findNetworkIDByIP(ip string) (int, error) {
 }
 
 func getLinkWithDestinationOf(ip string) (netlink.Link, error) {
+	// iproute := exec.Command("ip", "route", "get", "10.244.2.114/32")
+	iproute := exec.Command("ip", "route", "get", "10.244.135.140/32")
+	debug, debug_err := iproute.Output()
+	log.Errorf("ip route get output: {%s}, err: {%v}", debug, debug_err)
 	routes, err := netlink.RouteListFiltered(
 		netlink.FAMILY_V4,
 		&netlink.Route{Dst: &net.IPNet{IP: net.ParseIP(ip), Mask: net.CIDRMask(32, 32)}},
@@ -88,6 +93,7 @@ func getLinkWithDestinationOf(ip string) (netlink.Link, error) {
 //
 // Instead, we traverse the procfs. Comments on this method are inline.
 func getPodNetNs(pod *corev1.Pod) (string, error) {
+	log.Errorf("getPodNetNS was called for %s", pod.Name)
 	// First, find the network namespace id by looking the interface with the given Pod IP.
 	// This could break on some platforms if they do not have an interface-per-pod.
 	wantID, err := findNetworkIDByIP(pod.Status.PodIP)
