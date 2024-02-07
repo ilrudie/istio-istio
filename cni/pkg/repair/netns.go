@@ -60,8 +60,7 @@ func findNetworkIDByIP(ip string) (int, error) {
 }
 
 func getLinkWithDestinationOf(ip string) (netlink.Link, error) {
-	// iproute := exec.Command("ip", "route", "get", "10.244.2.114/32")
-	iproute := exec.Command("ip", "route", "get", "10.244.135.140/32")
+	iproute := exec.Command("ip", "route", "get", ip)
 	debug, debug_err := iproute.Output()
 	log.Errorf("ip route get output: {%s}, err: {%v}", debug, debug_err)
 	routes, err := netlink.RouteListFiltered(
