@@ -51,9 +51,7 @@ func (n Node) Descriptor() string {
 	}
 }
 
-func (p *DebugHandler) Mermaid() ([]byte, error) {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
+func FormatMermaid(debugCollections DumpedState) string {
 	id := 0
 	primaryDeps := map[Node]sets.Set[Node]{}
 	secondaryDeps := map[Node]sets.Set[Node]{}
@@ -73,12 +71,12 @@ func (p *DebugHandler) Mermaid() ([]byte, error) {
 	manyCollectionNode := func(s string) Node {
 		return rawNode(s, 1)
 	}
-	for _, c := range p.debugCollections {
-		d := c.dump()
+	for _, c := range debugCollections {
+		d := c.State
 		if d.InputCollection == "" {
 			continue
 		}
-		this := manyCollectionNode(c.name)
+		this := manyCollectionNode(c.Name)
 		primary := node(d.InputCollection)
 		sets.InsertOrNew(primaryDeps, this, primary)
 		for _, i := range d.Inputs {
@@ -102,8 +100,15 @@ func (p *DebugHandler) Mermaid() ([]byte, error) {
 	for _, node := range nodes {
 		fmt.Fprintf(sb, "  %s\n", node.Descriptor())
 	}
-	return []byte(sb.String()), nil
+	return sb.String()
 }
+
+// func (p *DebugHandler) Mermaid() ([]byte, error) {
+// 	p.mu.RLock()
+// 	defer p.mu.RUnlock()
+// 	krtGraph := FormatMermaid(p.debugCollections)
+// 	return []byte(krtGraph), nil
+// }
 
 var GlobalDebugHandler = new(DebugHandler)
 
@@ -122,6 +127,13 @@ type InputDump struct {
 type DebugCollection struct {
 	name string
 	dump func() CollectionDump
+}
+
+type DumpedState []NamedState
+
+type NamedState struct {
+	Name  string         `json:"name"`
+	State CollectionDump `json:"state"`
 }
 
 func (p DebugCollection) MarshalJSON() ([]byte, error) {
