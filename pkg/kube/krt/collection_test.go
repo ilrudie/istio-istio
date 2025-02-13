@@ -605,7 +605,7 @@ func TestCollectionDependencyRace(t *testing.T) {
 
 	intermediateCollection := krt.NewCollection(podsCollection, func(ctx krt.HandlerContext, i *corev1.Pod) *testNamed {
 		// sleep to emulate a slow dependency
-		time.Sleep(10 * time.Millisecond)
+		time.Sleep(2 * time.Millisecond)
 		return &testNamed{
 			name: i.GetLabels()["race-name"],
 		}
