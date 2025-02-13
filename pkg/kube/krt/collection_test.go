@@ -600,10 +600,10 @@ func TestCollectionDependencyRace(t *testing.T) {
 	opts := testOptions(t)
 	c := kube.NewFakeClient()
 	pc := clienttest.Wrap(t, kclient.New[*corev1.Pod](c))
-	pods := krt.WrapClient[*corev1.Pod](kclient.New[*corev1.Pod](c), opts.WithName("Pods")...)
+	podsCollection := krt.WrapClient[*corev1.Pod](kclient.New[*corev1.Pod](c), opts.WithName("Pods")...)
 	c.RunAndWait(stop)
 
-	intermediateCollection := krt.NewCollection(pods, func(ctx krt.HandlerContext, i *corev1.Pod) *testNamed {
+	intermediateCollection := krt.NewCollection(podsCollection, func(ctx krt.HandlerContext, i *corev1.Pod) *testNamed {
 		// sleep to emulate a slow dependency
 		time.Sleep(10 * time.Millisecond)
 		return &testNamed{
@@ -611,7 +611,7 @@ func TestCollectionDependencyRace(t *testing.T) {
 		}
 	}, opts.WithName("Intermediate")...)
 
-	raceDetectionCollection := krt.NewCollection(pods, func(ctx krt.HandlerContext, i *corev1.Pod) *testNamed {
+	raceDetectionCollection := krt.NewCollection(podsCollection, func(ctx krt.HandlerContext, i *corev1.Pod) *testNamed {
 		want, ok := i.GetLabels()["race-name"]
 		if !ok {
 			return nil
