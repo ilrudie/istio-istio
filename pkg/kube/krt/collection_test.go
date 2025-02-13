@@ -17,6 +17,7 @@ package krt_test
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"go.uber.org/atomic"
 	corev1 "k8s.io/api/core/v1"
@@ -581,4 +582,54 @@ func TestCollectionDiscardResult(t *testing.T) {
 		// Should see only one update -- the skip is ignored.
 		tt.WaitOrdered("add/static", "update/static")
 	})
+}
+
+type testNamed struct {
+	name string
+}
+
+// implements krt.ResourceNamer for testNamed
+func (t testNamed) ResourceName() string {
+	return t.name
+}
+
+// Test that collections which share the same dependency don't race.
+func TestCollectionDependencyRace(t *testing.T) {
+	t.Skip("this test asserts a condition which krt does not currently have a strong mechanism to prevent")
+	stop := test.NewStop(t)
+	opts := testOptions(t)
+	c := kube.NewFakeClient()
+	pc := clienttest.Wrap(t, kclient.New[*corev1.Pod](c))
+	pods := krt.WrapClient[*corev1.Pod](kclient.New[*corev1.Pod](c), opts.WithName("Pods")...)
+	c.RunAndWait(stop)
+
+	intermediateCollection := krt.NewCollection(pods, func(ctx krt.HandlerContext, i *corev1.Pod) *testNamed {
+		// sleep to emulate a slow dependency
+		time.Sleep(10 * time.Millisecond)
+		return &testNamed{
+			name: i.GetLabels()["race-name"],
+		}
+	}, opts.WithName("Intermediate")...)
+
+	raceDetectionCollection := krt.NewCollection(pods, func(ctx krt.HandlerContext, i *corev1.Pod) *testNamed {
+		want, ok := i.GetLabels()["race-name"]
+		if !ok {
+			return nil
+		}
+		got := krt.Fetch(ctx, intermediateCollection)
+		if !slices.Contains(got, testNamed{name: want}) {
+			t.Fatalf("dependency race found, expected %s, secondary dependency contains %v", want, got)
+		}
+		return &testNamed{name: want}
+	}, opts.WithName("RaceDetection")...)
+
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "name",
+			Namespace: "namespace",
+			Labels:    map[string]string{"race-name": "boop"},
+		},
+	}
+	pc.Create(pod)
+	assert.EventuallyEqual(t, fetcherSorted(raceDetectionCollection), []testNamed{{name: "boop"}})
 }
