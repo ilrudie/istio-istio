@@ -112,6 +112,8 @@ func (s *NetServer) AddPodToMesh(ctx context.Context, pod *corev1.Pod, podIPs []
 	s.currentPodSnapshot.Ensure(string(pod.UID))
 	openNetns, err := s.getOrOpenNetns(pod, netNs)
 	if err != nil {
+		// if we fail, we should not leave a dangling UID in the snapshot.
+		s.currentPodSnapshot.Take(string(pod.UID))
 		return NewErrNonRetryableAdd(err)
 	}
 
