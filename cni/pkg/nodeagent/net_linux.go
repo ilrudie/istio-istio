@@ -126,6 +126,7 @@ func (s *NetServer) AddPodToMesh(ctx context.Context, pod *corev1.Pod, podIPs []
 		// We currently treat any failure to create inpod rules as non-retryable/catastrophic,
 		// and return a NonRetryableError in this case.
 		log.Errorf("failed to update POD inpod: %s/%s %v", pod.Namespace, pod.Name, err)
+		s.currentPodSnapshot.Take(string(pod.UID))
 		return NewErrNonRetryableAdd(err)
 	}
 
