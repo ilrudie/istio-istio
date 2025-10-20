@@ -39,7 +39,6 @@ import (
 	"istio.io/istio/pkg/config"
 	"istio.io/istio/pkg/config/host"
 	"istio.io/istio/pkg/config/schema/gvk"
-	"istio.io/istio/pkg/config/schema/kind"
 	"istio.io/istio/pkg/config/schema/kubetypes"
 	"istio.io/istio/pkg/kube/controllers"
 	"istio.io/istio/pkg/kube/krt"
@@ -75,48 +74,60 @@ func (a *index) ServicesCollection(
 				multicluster.ClusterKRTMetadataKey: clusterID,
 			}),
 		)...)
-	serviceEntryByHostname := krt.NewIndex(ServiceEntriesInfo, "serviceEntryByHostname", func(se ServiceEntryInfo) []string {
-		return []string{types.NamespacedName{
-			Name:      se.Service.Name,
-			Namespace: se.Service.Namespace,
-		}.String()}
-	})
+	// serviceEntryByHostname := krt.NewIndex(ServiceEntriesInfo, "serviceEntryByHostname", func(se ServiceEntryInfo) []string {
+	// 	return []string{types.NamespacedName{
+	// 		Name:      se.Service.Name,
+	// 		Namespace: se.Service.Namespace,
+	// 	}.String()}
+	// })
 
-	DedupedServiceEntriesInfo := krt.NewCollection(
-		serviceEntryByHostname.AsCollection(),
-		func(ctx krt.HandlerContext, se krt.IndexObject[string, ServiceEntryInfo]) *model.ServiceInfo {
-			if len(se.Objects) == 0 {
-				return nil
-			}
+	// DedupedServiceEntriesInfo := krt.NewCollection(
+	// 	serviceEntryByHostname.AsCollection(),
+	// 	func(ctx krt.HandlerContext, se krt.IndexObject[string, ServiceEntryInfo]) *model.ServiceInfo {
+	// 		if len(se.Objects) == 0 {
+	// 			return nil
+	// 		}
 
-			var oldest *model.ServiceInfo
-			for _, o := range se.Objects {
-				if oldest == nil || o.CreationTime.Before(oldest.CreationTime) {
-					oldest = &o.ServiceInfo
-				}
-			}
-			return oldest
-		}, append(
-			opts.WithName("DedupedServiceEntriesInfo"),
-			krt.WithMetadata(krt.Metadata{
-				multicluster.ClusterKRTMetadataKey: clusterID,
-			}),
-		)...,
-	)
-	WorkloadServices := krt.JoinWithMergeCollection(
+	// 		var oldest *model.ServiceInfo
+	// 		for _, o := range se.Objects {
+	// 			if oldest == nil || o.CreationTime.Before(oldest.CreationTime) {
+	// 				oldest = &o.ServiceInfo
+	// 			}
+	// 		}
+	// 		return oldest
+	// 	}, append(
+	// 		opts.WithName("DedupedServiceEntriesInfo"),
+	// 		krt.WithMetadata(krt.Metadata{
+	// 			multicluster.ClusterKRTMetadataKey: clusterID,
+	// 		}),
+	// 	)...,
+	// )
+
+	// WorkloadServices := krt.JoinWithMergeCollection(
+	// 	[]krt.Collection[model.ServiceInfo]{
+	// 		ServicesInfo,
+	// 		DedupedServiceEntriesInfo,
+	// 	},
+	// 	func(conflicting []model.ServiceInfo) *model.ServiceInfo {
+	// 		// we'll never have more than 2 here - Service can't have hostname conflict
+	// 		// we already de-duplicated ServiceEntries above
+	// 		for _, c := range conflicting {
+	// 			if c.Source.Kind == kind.Service {
+	// 				return &c
+	// 			}
+	// 		}
+	// 		return &conflicting[0]
+	// 	},
+	// 	append(opts.WithName("WorkloadService"), krt.WithMetadata(
+	// 		krt.Metadata{
+	// 			multicluster.ClusterKRTMetadataKey: clusterID,
+	// 		},
+	// 	))...)
+	// This join is safe so long as we're using cleaned up service entries
+	WorkloadServices := krt.JoinCollection(
 		[]krt.Collection[model.ServiceInfo]{
 			ServicesInfo,
-			DedupedServiceEntriesInfo,
-		},
-		func(conflicting []model.ServiceInfo) *model.ServiceInfo {
-			// we'll never have more than 2 here - Service can't have hostname conflict
-			// we already de-duplicated ServiceEntries above
-			for _, c := range conflicting {
-				if c.Source.Kind == kind.Service {
-					return &c
-				}
-			}
-			return &conflicting[0]
+			ServiceEntriesInfo,
 		},
 		append(opts.WithName("WorkloadService"), krt.WithMetadata(
 			krt.Metadata{
@@ -124,6 +135,68 @@ func (a *index) ServicesCollection(
 			},
 		))...)
 	return WorkloadServices
+}
+
+func (a *index) cleanUpServiceEntries(serviceEntries krt.Collection[*networkingclient.ServiceEntry],
+	kubeServices krt.Collection[*v1.Service],
+	opts krt.OptionsBuilder,
+) krt.Collection[*networkingclient.ServiceEntry] {
+	serviceEntriesByNamespacedHostname := krt.NewIndex(serviceEntries, "serviceEntriesByNamespacedHostname", func(se *networkingclient.ServiceEntry) []string {
+		return slices.Map(se.Spec.Hosts, func(host string) string {
+			return types.NamespacedName{
+				Name:      host,
+				Namespace: se.Namespace,
+			}.String()
+		})
+	})
+
+	kubeServicesByHostname := krt.NewIndex(kubeServices, "kubeServicesByNamespacedHostname", func(s *v1.Service) []string {
+		hostname := kube.ServiceHostname(s.Name, s.Namespace, a.DomainSuffix).String()
+		return []string{hostname}
+	})
+
+	return krt.NewCollection(serviceEntries, func(ctx krt.HandlerContext, se *networkingclient.ServiceEntry) **networkingclient.ServiceEntry {
+		// TODO: should we just keep a pointer to the original SE but list the canonical hosts in some sort of wrapper type?
+		newServiceEntry := se.DeepCopy()        // ugh... but we are about to mangle here :(
+		newServiceEntry.Spec.Hosts = []string{} // reset hosts, we're pruning duplicate hosts
+		for _, host := range se.Spec.Hosts {
+			if ptr.Flatten(krt.FetchOne(ctx, kubeServices, krt.FilterIndex(kubeServicesByHostname, host))) != nil {
+				log.Warnf("ServiceEntry %s/%s is in conflict with a Kubernetes Service hostname %s, skipping", se.Namespace, se.Name, host)
+				continue // next host
+			}
+
+			key := types.NamespacedName{
+				Name:      host,
+				Namespace: se.Namespace,
+			}.String()
+			oldest := true
+			for _, found := range krt.Fetch(ctx, serviceEntries, krt.FilterIndex(serviceEntriesByNamespacedHostname, key)) {
+				if found.Namespace == se.Namespace && found.Name == se.Name {
+					// this is me, just move on
+					continue // next found
+				}
+				if found.CreationTimestamp.Time.Before(se.CreationTimestamp.Time) {
+					log.Warnf("Hostname %s is already in use by a older ServiceEntry %s/%s", host, found.Namespace, found.Name)
+					oldest = false
+					// if we are already not the oldest, don't keep looking
+					break // next host
+				}
+			}
+			if oldest {
+				// we are the canonical ServiceEntry for this hostname, keep the host
+				newServiceEntry.Spec.Hosts = append(newServiceEntry.Spec.Hosts, host)
+			}
+
+		}
+		if len(newServiceEntry.Spec.Hosts) == 0 {
+			// TODO: Removing the SE entirely might break status writing, investigate.
+			log.Warnf("ServiceEntry %s/%s has no hosts after cleanup", se.Namespace, se.Name)
+			return nil
+		}
+		return &newServiceEntry
+	}, append(opts.WithName("CleanUpServiceEntries"), krt.WithMetadata(krt.Metadata{
+		multicluster.ClusterKRTMetadataKey: a.ClusterID,
+	}))...)
 }
 
 func GlobalMergedWorkloadServicesCollection(
@@ -414,15 +487,13 @@ func (s ServiceEntryInfo) Equals(other ServiceEntryInfo) bool {
 func (a *index) serviceEntryServiceBuilder(
 	waypoints krt.Collection[Waypoint],
 	namespaces krt.Collection[*v1.Namespace],
-) krt.TransformationMulti[*networkingclient.ServiceEntry, ServiceEntryInfo] {
-	return func(ctx krt.HandlerContext, s *networkingclient.ServiceEntry) []ServiceEntryInfo {
+) krt.TransformationMulti[*networkingclient.ServiceEntry, model.ServiceInfo] {
+	return func(ctx krt.HandlerContext, s *networkingclient.ServiceEntry) []model.ServiceInfo {
 		waypoint, waypointError := fetchWaypointForService(ctx, waypoints, namespaces, s.ObjectMeta)
 		serviceInfos := serviceEntriesInfo(ctx, s, waypoint, waypointError, func(ctx krt.HandlerContext) network.ID {
 			return a.Network(ctx)
 		})
-		return slices.Map(serviceInfos, func(si model.ServiceInfo) ServiceEntryInfo {
-			return ServiceEntryInfo{ServiceInfo: si}
-		})
+		return serviceInfos
 	}
 }
 
