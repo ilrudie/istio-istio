@@ -164,21 +164,16 @@ func (a *index) cleanUpServiceEntries(serviceEntries krt.Collection[*networkingc
 				log.Warnf("ServiceEntry %s/%s is in conflict with a Kubernetes Service hostname %s, skipping", se.Namespace, se.Name, host)
 				continue // next host
 			}
-
 			key := types.NamespacedName{
 				Name:      host,
 				Namespace: se.Namespace,
 			}.String()
 			oldest := true
 			for _, found := range krt.Fetch(ctx, serviceEntries, krt.FilterIndex(serviceEntriesByNamespacedHostname, key)) {
-				if found.Namespace == se.Namespace && found.Name == se.Name {
-					// this is me, just move on
-					continue // next found
-				}
 				if found.CreationTimestamp.Time.Before(se.CreationTimestamp.Time) {
 					log.Warnf("Hostname %s is already in use by a older ServiceEntry %s/%s", host, found.Namespace, found.Name)
 					oldest = false
-					// if we are already not the oldest, don't keep looking
+					// if we are not the oldest, don't keep looking
 					break // next host
 				}
 			}
