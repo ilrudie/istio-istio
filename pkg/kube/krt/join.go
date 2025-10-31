@@ -116,6 +116,8 @@ func (j *join[T]) handleInnerCollectionEvent(handler func(o []Event[T])) func(o 
 						Event: controllers.EventUpdate,
 					})
 				}
+			} else {
+				eventsToSend = append(eventsToSend, e)
 			}
 		}
 		handler(eventsToSend)
