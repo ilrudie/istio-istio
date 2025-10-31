@@ -17,6 +17,7 @@ package krt
 import (
 	"fmt"
 
+	"istio.io/istio/pkg/kube/controllers"
 	"istio.io/istio/pkg/ptr"
 	"istio.io/istio/pkg/slices"
 	"istio.io/istio/pkg/util/sets"
@@ -89,11 +90,43 @@ func (j *join[T]) Register(f func(o Event[T])) HandlerRegistration {
 	return registerHandlerAsBatched[T](j, f)
 }
 
+func (j *join[T]) handleInnerCollectionEvent(handler func(o []Event[T])) func(o []Event[T]) {
+	return func(events []Event[T]) {
+		eventsToSend := make([]Event[T], 0, len(events))
+		for _, e := range events {
+			if e.Event == controllers.EventDelete {
+				key := GetKey(e.Latest())
+				// Check to see if any of our other collections have this key. If not, we need to send a delete event for this key.
+				// If we do have it, we need to send an update event for this key.
+				found := false
+				newObj := e.New
+				for _, c := range j.collections {
+					if otherObj := c.GetKey(key); otherObj != nil {
+						found = true
+						newObj = otherObj
+						break
+					}
+				}
+				if !found {
+					eventsToSend = append(eventsToSend, e)
+				} else {
+					eventsToSend = append(eventsToSend, Event[T]{
+						Old:   e.Old,
+						New:   newObj,
+						Event: controllers.EventUpdate,
+					})
+				}
+			}
+		}
+		handler(eventsToSend)
+	}
+}
+
 func (j *join[T]) RegisterBatch(f func(o []Event[T]), runExistingState bool) HandlerRegistration {
 	sync := multiSyncer{}
 	removes := []func(){}
 	for _, c := range j.collections {
-		reg := c.RegisterBatch(f, runExistingState)
+		reg := c.RegisterBatch(j.handleInnerCollectionEvent(f), runExistingState)
 		removes = append(removes, reg.UnregisterHandler)
 		sync.syncers = append(sync.syncers, reg)
 	}
