@@ -39,6 +39,8 @@ type staticList[T any] struct {
 	syncer         Syncer
 	metadata       Metadata
 	indexes        map[string]staticListIndex[T]
+	// equals compares two elements, resolved once at construction. See WithEquals.
+	equals func(a, b T) bool
 }
 
 func NewStaticCollection[T any](synced Syncer, vals []T, opts ...CollectionOption) StaticCollection[T] {
@@ -64,6 +66,7 @@ func NewStaticCollection[T any](synced Syncer, vals []T, opts ...CollectionOptio
 		collectionName: o.name,
 		syncer:         synced,
 		indexes:        make(map[string]staticListIndex[T]),
+		equals:         equalsForCollection[T](o),
 	}
 
 	if o.metadata != nil {
@@ -131,7 +134,7 @@ func (s StaticCollection[T]) Reset(newState []T) {
 		k := GetKey(incoming)
 		nv[k] = incoming
 		if old, f := s.vals[k]; f {
-			if !Equal(old, incoming) {
+			if !s.equals(old, incoming) {
 				ev := Event[T]{
 					Old:   &old,
 					New:   &incoming,
@@ -186,7 +189,7 @@ func (s *staticList[T]) updateObject(obj T, conditional bool) {
 	old, f := s.vals[k]
 	s.vals[k] = obj
 	if f {
-		if conditional && Equal(old, obj) {
+		if conditional && s.equals(old, obj) {
 			return
 		}
 

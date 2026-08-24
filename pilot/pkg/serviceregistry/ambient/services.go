@@ -68,6 +68,7 @@ func (a Builder) ServicesCollection(
 			krt.WithMetadata(krt.Metadata{
 				multicluster.ClusterKRTMetadataKey: clusterID,
 			}),
+			krt.WithEquals(TypedServiceInfo.Equals),
 		)...)
 
 	ServiceEntriesInfo := krt.NewManyCollection(serviceEntries, a.serviceEntryServiceBuilder(waypoints, namespaces, serviceEntryVisibility),
@@ -76,6 +77,7 @@ func (a Builder) ServicesCollection(
 			krt.WithMetadata(krt.Metadata{
 				multicluster.ClusterKRTMetadataKey: clusterID,
 			}),
+			krt.WithEquals(TypedServiceInfo.Equals),
 		)...)
 
 	allTypedServiceInfos := krt.JoinCollection([]krt.Collection[TypedServiceInfo]{ServicesInfo, ServiceEntriesInfo},
@@ -99,6 +101,7 @@ func (a Builder) ServicesCollection(
 			krt.WithMetadata(krt.Metadata{
 				multicluster.ClusterKRTMetadataKey: clusterID,
 			}),
+			krt.WithEquals(model.ServiceInfo.Equals),
 		)...,
 	)
 	return WorkloadServices

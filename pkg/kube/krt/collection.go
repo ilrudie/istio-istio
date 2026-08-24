@@ -225,6 +225,9 @@ type manyCollection[I, O any] struct {
 
 	transformation TransformationMulti[I, O]
 
+	// equals compares two output objects, resolved once at construction. See WithEquals.
+	equals func(a, b O) bool
+
 	// augmentation allows transforming an object into another for usage throughout the library. See WithObjectAugmentation.
 	augmentation func(a any) any
 	synced       chan struct{}
@@ -515,7 +518,7 @@ func (h *manyCollection[I, O]) handleChangedPrimaryInputEvents(items []Event[I])
 				oldRes, oldExists := h.collectionState.outputs[key]
 				e := Event[O]{}
 				if newExists && oldExists {
-					if Equal(newRes, oldRes) {
+					if h.equals(newRes, oldRes) {
 						// NOP change, skip
 						continue
 					}
@@ -605,6 +608,7 @@ func newManyCollection[I, O any](
 
 	h := &manyCollection[I, O]{
 		transformation: hf,
+		equals:         equalsForCollection[O](opts),
 		collectionName: opts.name,
 		id:             nextUID(),
 		log:            log.WithLabels("owner", opts.name),

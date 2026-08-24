@@ -92,6 +92,11 @@ type collectionOptions struct {
 	debugger      *DebugHandler
 	joinUnchecked bool
 
+	// equals holds the function provided via WithEquals, if any. It is type-erased since
+	// collectionOptions is not generic; it is asserted back to func(a, b O) bool at
+	// collection construction.
+	equals any
+
 	indexCollectionFromString func(string) any
 	metadata                  Metadata
 }
@@ -206,6 +211,56 @@ func Equal[O any](a, b O) bool {
 	}
 
 	return reflect.DeepEqual(a, b)
+}
+
+// resolveEquals resolves the comparison function for O once, so collections do not pay for
+// Equal's per-call probing (and its boxing allocations) on every comparison. The probes mirror
+// Equal's, in the same order; a type can have only one Equals method, so the resolved function
+// always invokes the same method Equal would.
+func resolveEquals[O any]() func(a, b O) bool {
+	if reflect.TypeFor[O]().Kind() == reflect.Interface {
+		// For interface elements the comparison depends on each element's dynamic type, which can
+		// differ per call, so it cannot be resolved up front.
+		return Equal[O]
+	}
+	var zero O
+	if _, ok := any(zero).(Equaler[O]); ok {
+		return func(a, b O) bool { return any(a).(Equaler[O]).Equals(b) }
+	}
+	if _, ok := any(zero).(Equaler[*O]); ok {
+		return func(a, b O) bool { return any(a).(Equaler[*O]).Equals(&b) }
+	}
+	if _, ok := any(&zero).(Equaler[O]); ok {
+		return func(a, b O) bool { return any(&a).(Equaler[O]).Equals(b) }
+	}
+	if _, ok := any(&zero).(Equaler[*O]); ok {
+		return func(a, b O) bool { return any(&a).(Equaler[*O]).Equals(&b) }
+	}
+	if ap, ok := any(zero).(proto.Message); ok {
+		if reflect.TypeOf(ap.ProtoReflect().Interface()) == reflect.TypeOf(ap) {
+			return func(a, b O) bool { return proto.Equal(any(a).(proto.Message), any(b).(proto.Message)) }
+		}
+		// If not, this is an embedded proto most likely... Sneaky.
+		// DeepEqual on proto is broken, so fail fast to avoid subtle errors.
+		// Panic at comparison time rather than here, matching Equal.
+		return func(a, b O) bool {
+			panic(fmt.Sprintf("unable to compare object %T; perhaps it is embedding a protobuf? Provide an Equaler implementation", a))
+		}
+	}
+	return func(a, b O) bool { return reflect.DeepEqual(a, b) }
+}
+
+// equalsForCollection returns the comparison function for a collection's elements: the explicit
+// function provided via WithEquals if set, otherwise one resolved from the element type.
+func equalsForCollection[O any](o collectionOptions) func(a, b O) bool {
+	if o.equals != nil {
+		fn, ok := o.equals.(func(a, b O) bool)
+		if !ok {
+			panic(fmt.Sprintf("collection %q: WithEquals function is %T, want func(a, b %v) bool", o.name, o.equals, ptr.TypeName[O]()))
+		}
+		return fn
+	}
+	return resolveEquals[O]()
 }
 
 type collectionUID uint64

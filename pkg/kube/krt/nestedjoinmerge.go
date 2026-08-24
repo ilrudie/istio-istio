@@ -83,6 +83,7 @@ func NestedJoinWithMergeCollection[T any](collections Collection[Collection[T]],
 			eventHandlers:  newHandlerSet[T](),
 			metadata:       o.metadata,
 			merge:          merge,
+			equals:         equalsForCollection[T](o),
 			synced:         synced,
 			stop:           o.stop,
 			debugger:       o.debugger,
@@ -225,7 +226,7 @@ func (j *nestedjoinmerge[T]) handleCollectionUpdate(e Event[Collection[T]]) {
 			merged := j.calculateMerged(string(key))
 			// Guaranteed to be in the outputs map since this was in oldItems
 			oldItem = j.outputs[key]
-			if Equal(oldItem, *merged) {
+			if j.equals(oldItem, *merged) {
 				// no-op, the item is unchanged
 				continue
 			}
@@ -271,7 +272,7 @@ func (j *nestedjoinmerge[T]) handleCollectionUpdate(e Event[Collection[T]]) {
 			continue
 		}
 
-		if Equal(existing, *merged) {
+		if j.equals(existing, *merged) {
 			// no-op, the item is unchanged
 			continue
 		}

@@ -861,3 +861,41 @@ func TestCollectionMetadata(t *testing.T) {
 
 	assert.Equal(t, SimplePods.Metadata(), meta)
 }
+
+type versionedObject struct {
+	Name    string
+	Version int
+	// Ignored is not part of the WithEquals comparison in TestCollectionWithEquals.
+	Ignored int
+}
+
+func (v versionedObject) ResourceName() string {
+	return v.Name
+}
+
+func TestCollectionWithEquals(t *testing.T) {
+	stop := test.NewStop(t)
+	opts := testOptions(t)
+	source := krt.NewStaticCollection[versionedObject](nil, []versionedObject{{Name: "a", Version: 1}}, opts.WithName("Source")...)
+	col := krt.NewCollection(source, func(ctx krt.HandlerContext, o versionedObject) *versionedObject {
+		return &o
+	}, opts.With(
+		krt.WithName("WithEquals"),
+		krt.WithEquals(func(a, b versionedObject) bool {
+			return a.Name == b.Name && a.Version == b.Version
+		}),
+	)...)
+	col.WaitUntilSynced(stop)
+	tt := assert.NewTracker[string](t)
+	col.Register(TrackerHandler[versionedObject](tt))
+	tt.WaitUnordered("add/a")
+
+	// The custom equals does not compare Ignored, so this update is suppressed.
+	source.UpdateObject(versionedObject{Name: "a", Version: 1, Ignored: 1})
+	// Version is compared, so this one is emitted.
+	source.UpdateObject(versionedObject{Name: "a", Version: 2, Ignored: 1})
+	// Events are processed in order: if the suppressed update leaked, it would arrive first
+	// and fail the ordered wait.
+	tt.WaitOrdered("update/a")
+	tt.Empty()
+}

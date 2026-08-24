@@ -109,3 +109,13 @@ func WithMetadata(metadata Metadata) CollectionOption {
 		c.metadata = metadata
 	}
 }
+
+// WithEquals provides an explicit equality function for the collection's elements, used to
+// suppress no-op update events. This bypasses the runtime Equaler probing done by Equal, and
+// its per-comparison boxing allocations. The function must compare the collection's output
+// element type; a mismatch panics at collection construction.
+func WithEquals[O any](fn func(a, b O) bool) CollectionOption {
+	return func(c *collectionOptions) {
+		c.equals = fn
+	}
+}

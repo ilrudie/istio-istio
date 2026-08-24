@@ -52,6 +52,8 @@ type mergejoin[T any] struct {
 	mu      sync.RWMutex // protects indexes, outputs, and eventHandlers
 
 	merge func(ts []T) *T
+	// equals compares two merged elements, resolved once at construction. See WithEquals.
+	equals func(a, b T) bool
 
 	synced   chan struct{}
 	stop     <-chan struct{}
@@ -249,7 +251,7 @@ func (j *mergejoin[T]) onSubCollectionEventHandler(o []Event[T]) {
 			oldObj := ev.Old
 			if oldObj != nil && newObj != nil {
 				// Update event
-				if Equal(*ev.New, *ev.Old) {
+				if j.equals(*ev.New, *ev.Old) {
 					// NOP change, skip
 					continue
 				}
@@ -422,6 +424,7 @@ func JoinWithMergeCollection[T any](cs []Collection[T], merge func(ts []T) *T, o
 		eventHandlers:  newHandlerSet[T](),
 		metadata:       o.metadata,
 		merge:          merge,
+		equals:         equalsForCollection[T](o),
 		synced:         synced,
 		stop:           o.stop,
 		syncer: channelSyncer{
