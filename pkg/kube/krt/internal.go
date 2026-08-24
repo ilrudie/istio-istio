@@ -92,11 +92,6 @@ type collectionOptions struct {
 	debugger      *DebugHandler
 	joinUnchecked bool
 
-	// equals holds the function provided via WithEquals, if any. It is type-erased since
-	// collectionOptions is not generic; it is asserted back to func(a, b O) bool at
-	// collection construction.
-	equals any
-
 	indexCollectionFromString func(string) any
 	metadata                  Metadata
 }
@@ -277,19 +272,6 @@ func providedEquals[O any](p EqualerProvider[O]) func(a, b O) bool {
 		panic(fmt.Sprintf("EqualsFunc for %v returned nil", ptr.TypeName[O]()))
 	}
 	return fn
-}
-
-// equalsForCollection returns the comparison function for a collection's elements: the explicit
-// function provided via WithEquals if set, otherwise one resolved from the element type.
-func equalsForCollection[O any](o collectionOptions) func(a, b O) bool {
-	if o.equals != nil {
-		fn, ok := o.equals.(func(a, b O) bool)
-		if !ok {
-			panic(fmt.Sprintf("collection %q: WithEquals function is %T, want func(a, b %v) bool", o.name, o.equals, ptr.TypeName[O]()))
-		}
-		return fn
-	}
-	return resolveEquals[O]()
 }
 
 type collectionUID uint64

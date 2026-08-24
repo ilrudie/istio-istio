@@ -225,7 +225,7 @@ type manyCollection[I, O any] struct {
 
 	transformation TransformationMulti[I, O]
 
-	// equals compares two output objects, resolved once at construction. See WithEquals.
+	// equals compares two output objects, resolved once at construction. See EqualerProvider.
 	equals func(a, b O) bool
 	// keyI/keyO derive element keys, resolved once at construction. See ResourceNamerProvider.
 	keyI func(I) Key[I]
@@ -611,7 +611,7 @@ func newManyCollection[I, O any](
 
 	h := &manyCollection[I, O]{
 		transformation: hf,
-		equals:         equalsForCollection[O](opts),
+		equals:         resolveEquals[O](),
 		keyI:           resolveKey[I](),
 		keyO:           resolveKey[O](),
 		collectionName: opts.name,

@@ -156,27 +156,6 @@ func TestResolveEqualsEmbeddedProto(t *testing.T) {
 	assertPanics(t, func() { eq(a, b) })
 }
 
-func TestEqualsForCollection(t *testing.T) {
-	// An explicit WithEquals function is used as-is.
-	fn := equalsForCollection[equalsValueValue](collectionOptions{
-		name:   "explicit",
-		equals: func(a, b equalsValueValue) bool { return a.B == b.B },
-	})
-	assert.Equal(t, fn(equalsValueValue{"x", "1"}, equalsValueValue{"y", "1"}), true)
-
-	// A WithEquals function for the wrong type panics at construction.
-	assertPanics(t, func() {
-		equalsForCollection[equalsValueValue](collectionOptions{
-			name:   "mismatch",
-			equals: func(a, b int) bool { return a == b },
-		})
-	})
-
-	// No explicit function falls back to resolution.
-	fn = equalsForCollection[equalsValueValue](collectionOptions{name: "resolved"})
-	assert.Equal(t, fn(equalsValueValue{"x", "1"}, equalsValueValue{"x", "2"}), true)
-}
-
 // The key* types below cover the receiver shapes GetKey and resolveKey probe for.
 
 type keyNamer struct{ A, B string }
@@ -306,8 +285,8 @@ func BenchmarkEquals(b *testing.B) {
 			}
 		}
 	})
-	b.Run("with-equals", func(b *testing.B) {
-		eq := equalsForCollection[benchEqualsBig](collectionOptions{equals: benchEqualsBig.Equals})
+	b.Run("direct", func(b *testing.B) {
+		eq := benchEqualsBig.Equals
 		b.ReportAllocs()
 		b.ResetTimer()
 		for n := 0; n < b.N; n++ {

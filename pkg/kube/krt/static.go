@@ -39,7 +39,7 @@ type staticList[T any] struct {
 	syncer         Syncer
 	metadata       Metadata
 	indexes        map[string]staticListIndex[T]
-	// equals compares two elements, resolved once at construction. See WithEquals.
+	// equals compares two elements, resolved once at construction. See EqualerProvider.
 	equals func(a, b T) bool
 	// key derives element keys, resolved once at construction. See ResourceNamerProvider.
 	key func(T) Key[T]
@@ -69,7 +69,7 @@ func NewStaticCollection[T any](synced Syncer, vals []T, opts ...CollectionOptio
 		collectionName: o.name,
 		syncer:         synced,
 		indexes:        make(map[string]staticListIndex[T]),
-		equals:         equalsForCollection[T](o),
+		equals:         resolveEquals[T](),
 		key:            key,
 	}
 

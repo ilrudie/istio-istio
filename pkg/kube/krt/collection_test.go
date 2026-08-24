@@ -865,7 +865,7 @@ func TestCollectionMetadata(t *testing.T) {
 type versionedObject struct {
 	Name    string
 	Version int
-	// Ignored is not part of the WithEquals comparison in TestCollectionWithEquals.
+	// Ignored is not part of the Equals comparison.
 	Ignored int
 }
 
@@ -873,18 +873,27 @@ func (v versionedObject) ResourceName() string {
 	return v.Name
 }
 
-func TestCollectionWithEquals(t *testing.T) {
+func (v versionedObject) Equals(o versionedObject) bool {
+	return v.Name == o.Name && v.Version == o.Version
+}
+
+func (versionedObject) EqualsFunc() func(a, b versionedObject) bool {
+	return versionedObject.Equals
+}
+
+func (versionedObject) ResourceNameFunc() func(versionedObject) string {
+	return versionedObject.ResourceName
+}
+
+var _ krt.FastPathProvider[versionedObject] = versionedObject{}
+
+func TestCollectionEqualerProvider(t *testing.T) {
 	stop := test.NewStop(t)
 	opts := testOptions(t)
 	source := krt.NewStaticCollection[versionedObject](nil, []versionedObject{{Name: "a", Version: 1}}, opts.WithName("Source")...)
 	col := krt.NewCollection(source, func(ctx krt.HandlerContext, o versionedObject) *versionedObject {
 		return &o
-	}, opts.With(
-		krt.WithName("WithEquals"),
-		krt.WithEquals(func(a, b versionedObject) bool {
-			return a.Name == b.Name && a.Version == b.Version
-		}),
-	)...)
+	}, opts.WithName("EqualerProvider")...)
 	col.WaitUntilSynced(stop)
 	tt := assert.NewTracker[string](t)
 	col.Register(TrackerHandler[versionedObject](tt))

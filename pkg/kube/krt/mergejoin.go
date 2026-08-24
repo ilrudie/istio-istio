@@ -52,7 +52,7 @@ type mergejoin[T any] struct {
 	mu      sync.RWMutex // protects indexes, outputs, and eventHandlers
 
 	merge func(ts []T) *T
-	// equals compares two merged elements, resolved once at construction. See WithEquals.
+	// equals compares two merged elements, resolved once at construction. See EqualerProvider.
 	equals func(a, b T) bool
 	// key derives element keys, resolved once at construction. See ResourceNamerProvider.
 	key func(T) Key[T]
@@ -426,7 +426,7 @@ func JoinWithMergeCollection[T any](cs []Collection[T], merge func(ts []T) *T, o
 		eventHandlers:  newHandlerSet[T](),
 		metadata:       o.metadata,
 		merge:          merge,
-		equals:         equalsForCollection[T](o),
+		equals:         resolveEquals[T](),
 		key:            resolveKey[T](),
 		synced:         synced,
 		stop:           o.stop,
