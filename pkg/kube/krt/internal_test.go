@@ -17,7 +17,11 @@ package krt
 import (
 	"testing"
 
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
 	"istio.io/api/type/v1beta1"
+	"istio.io/istio/pkg/config"
 	"istio.io/istio/pkg/test/util/assert"
 )
 
@@ -173,6 +177,68 @@ func TestEqualsForCollection(t *testing.T) {
 	assert.Equal(t, fn(equalsValueValue{"x", "1"}, equalsValueValue{"x", "2"}), true)
 }
 
+// The key* types below cover the receiver shapes GetKey and resolveKey probe for.
+
+type keyNamer struct{ A, B string }
+
+func (k keyNamer) ResourceName() string { return k.A }
+
+type keyNamerIface interface{ ResourceName() string }
+
+type keyProviderOnly struct{ A, B string }
+
+func (keyProviderOnly) ResourceNameFunc() func(keyProviderOnly) string {
+	return func(k keyProviderOnly) string { return k.A }
+}
+
+type keyProviderPointerReceiver struct{ A, B string }
+
+func (*keyProviderPointerReceiver) ResourceNameFunc() func(keyProviderPointerReceiver) string {
+	return func(k keyProviderPointerReceiver) string { return k.A }
+}
+
+type keyProviderAndNamer struct{ A, B string }
+
+func (k keyProviderAndNamer) ResourceName() string { return k.A }
+
+func (keyProviderAndNamer) ResourceNameFunc() func(keyProviderAndNamer) string {
+	return keyProviderAndNamer.ResourceName
+}
+
+type keyProviderNil struct{ A string }
+
+func (keyProviderNil) ResourceNameFunc() func(keyProviderNil) string { return nil }
+
+type keyless struct{ A string }
+
+func testResolveKeyParity[O any](t *testing.T, name string, o O, want string) {
+	t.Helper()
+	assert.Equal(t, GetKey(o), want, name+": GetKey")
+	assert.Equal(t, string(resolveKey[O]()(o)), want, name+": resolveKey")
+}
+
+func TestResolveKey(t *testing.T) {
+	testResolveKeyParity(t, "string", "ns/name", "ns/name")
+	testResolveKeyParity(t, "object",
+		&corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "name", Namespace: "ns"}}, "ns/name")
+	testResolveKeyParity(t, "config",
+		config.Config{Meta: config.Meta{Name: "name", Namespace: "ns"}}, keyFunc("name", "ns"))
+	testResolveKeyParity(t, "config pointer",
+		&config.Config{Meta: config.Meta{Name: "name", Namespace: "ns"}}, keyFunc("name", "ns"))
+	testResolveKeyParity(t, "namer", keyNamer{"x", "1"}, "x")
+	testResolveKeyParity(t, "provider", keyProviderOnly{"x", "1"}, "x")
+	testResolveKeyParity(t, "provider pointer receiver", keyProviderPointerReceiver{"x", "1"}, "x")
+	testResolveKeyParity(t, "provider and namer", keyProviderAndNamer{"x", "1"}, "x")
+	// Interface elements resolve per call based on the dynamic type.
+	testResolveKeyParity[keyNamerIface](t, "interface", keyNamer{"x", "1"}, "x")
+
+	// A keyless type panics at key computation time in both paths.
+	assertPanics(t, func() { GetKey(keyless{"x"}) })
+	assertPanics(t, func() { resolveKey[keyless]()(keyless{"x"}) })
+	// A nil ResourceNameFunc result is a programmer error, reported at resolution time.
+	assertPanics(t, func() { resolveKey[keyProviderNil]() })
+}
+
 func assertPanics(t *testing.T, f func()) {
 	t.Helper()
 	defer func() {
@@ -194,6 +260,8 @@ type benchEqualsBig struct {
 
 func (b benchEqualsBig) Equals(o benchEqualsBig) bool { return b.S1 == o.S1 && b.S2 == o.S2 }
 
+func (b benchEqualsBig) ResourceName() string { return b.S1 }
+
 // benchEqualsBigProvider is benchEqualsBig with an EqualerProvider implementation, kept separate
 // so the probe/resolved cases above still measure the Equaler tiers.
 type benchEqualsBigProvider struct {
@@ -209,6 +277,12 @@ func (b benchEqualsBigProvider) Equals(o benchEqualsBigProvider) bool {
 
 func (benchEqualsBigProvider) EqualsFunc() func(a, b benchEqualsBigProvider) bool {
 	return benchEqualsBigProvider.Equals
+}
+
+func (b benchEqualsBigProvider) ResourceName() string { return b.S1 }
+
+func (benchEqualsBigProvider) ResourceNameFunc() func(benchEqualsBigProvider) string {
+	return benchEqualsBigProvider.ResourceName
 }
 
 func BenchmarkEquals(b *testing.B) {
@@ -251,6 +325,39 @@ func BenchmarkEquals(b *testing.B) {
 		for n := 0; n < b.N; n++ {
 			if !eq(px, py) {
 				b.Fatal("expected equal")
+			}
+		}
+	})
+}
+
+func BenchmarkGetKey(b *testing.B) {
+	x := benchEqualsBig{S1: "ns/name", S2: "b", M: map[string]string{"k": "v"}}
+	b.Run("probe", func(b *testing.B) {
+		b.ReportAllocs()
+		for n := 0; n < b.N; n++ {
+			if GetKey(x) == "" {
+				b.Fatal("expected key")
+			}
+		}
+	})
+	b.Run("resolved", func(b *testing.B) {
+		key := resolveKey[benchEqualsBig]()
+		b.ReportAllocs()
+		b.ResetTimer()
+		for n := 0; n < b.N; n++ {
+			if key(x) == "" {
+				b.Fatal("expected key")
+			}
+		}
+	})
+	b.Run("provider", func(b *testing.B) {
+		px := benchEqualsBigProvider{S1: "ns/name", S2: "b", M: map[string]string{"k": "v"}}
+		key := resolveKey[benchEqualsBigProvider]()
+		b.ReportAllocs()
+		b.ResetTimer()
+		for n := 0; n < b.N; n++ {
+			if key(px) == "" {
+				b.Fatal("expected key")
 			}
 		}
 	})

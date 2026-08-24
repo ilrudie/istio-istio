@@ -54,6 +54,8 @@ type mergejoin[T any] struct {
 	merge func(ts []T) *T
 	// equals compares two merged elements, resolved once at construction. See WithEquals.
 	equals func(a, b T) bool
+	// key derives element keys, resolved once at construction. See ResourceNamerProvider.
+	key func(T) Key[T]
 
 	synced   chan struct{}
 	stop     <-chan struct{}
@@ -225,7 +227,7 @@ func (j *mergejoin[T]) onSubCollectionEventHandler(o []Event[T]) {
 
 	for _, ev := range items {
 		obj := ev.Latest()
-		objKey := getTypedKey(obj)
+		objKey := j.key(obj)
 		if ev.Event == controllers.EventDelete {
 			oldRes, f := j.outputs[objKey]
 			if !f {
@@ -292,7 +294,7 @@ func (j *mergejoin[T]) refreshEventsLocked(items []Event[T]) []Event[T] {
 	// Refreshing events is different for merged collections because we need to
 	// calculate the merge for the key of each item.
 	for idx, ev := range items {
-		iKey := getTypedKey(ev.Latest())
+		iKey := j.key(ev.Latest())
 		iObj := j.calculateMerged(string(iKey))
 		if iObj == nil {
 			ev.Event = controllers.EventDelete
@@ -425,6 +427,7 @@ func JoinWithMergeCollection[T any](cs []Collection[T], merge func(ts []T) *T, o
 		metadata:       o.metadata,
 		merge:          merge,
 		equals:         equalsForCollection[T](o),
+		key:            resolveKey[T](),
 		synced:         synced,
 		stop:           o.stop,
 		syncer: channelSyncer{

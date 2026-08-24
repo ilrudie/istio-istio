@@ -93,6 +93,14 @@ func GetKey[O any](a O) string {
 	if ok {
 		return arn.ResourceName()
 	}
+	// ResourceNamerProvider is probed after ResourceNamer so types implementing ResourceName pay
+	// nothing new here; resolveKey probes it first instead, where the resolution happens only once.
+	if arp, ok := any(a).(ResourceNamerProvider[O]); ok {
+		return arp.ResourceNameFunc()(a)
+	}
+	if arp, ok := any(&a).(ResourceNamerProvider[O]); ok {
+		return arp.ResourceNameFunc()(a)
+	}
 	auid, ok := any(a).(uidable)
 	if ok {
 		return strconv.FormatUint(uint64(auid.uid()), 10)
@@ -108,6 +116,77 @@ func GetKey[O any](a O) string {
 		return *ack
 	}
 	panic(fmt.Sprintf("Cannot get Key, got %T", a))
+}
+
+// resolveKey resolves the key-derivation function for O once, so collections do not pay for
+// GetKey's per-call probing (and its boxing allocations) on every key computation.
+// ResourceNamerProvider is probed first since its function avoids boxing entirely; the remaining
+// probes mirror GetKey's, in the same order (and ResourceNameFunc must be consistent with
+// ResourceName), so the resolved function derives the same key GetKey would.
+func resolveKey[O any]() func(O) Key[O] {
+	if reflect.TypeFor[O]().Kind() == reflect.Interface {
+		// For interface elements the key derivation depends on each element's dynamic type, which
+		// can differ per call, so it cannot be resolved up front.
+		return getTypedKey[O]
+	}
+	var zero O
+	// Tier zero: the type hands over its key function directly, so every key derivation is a
+	// plain function call with no interface boxing.
+	if p, ok := any(zero).(ResourceNamerProvider[O]); ok {
+		return providedKey[O](p)
+	}
+	if p, ok := any(&zero).(ResourceNamerProvider[O]); ok {
+		return providedKey[O](p)
+	}
+	if _, ok := any(zero).(string); ok {
+		return func(a O) Key[O] { return Key[O](any(a).(string)) }
+	}
+	if _, ok := any(zero).(controllers.Object); ok {
+		return func(a O) Key[O] {
+			k, _ := cache.MetaNamespaceKeyFunc(any(a).(controllers.Object))
+			return Key[O](k)
+		}
+	}
+	if _, ok := any(zero).(config.Config); ok {
+		return func(a O) Key[O] {
+			ac := any(a).(config.Config)
+			return Key[O](keyFunc(ac.Name, ac.Namespace))
+		}
+	}
+	if _, ok := any(zero).(*config.Config); ok {
+		return func(a O) Key[O] {
+			acp := any(a).(*config.Config)
+			return Key[O](keyFunc(acp.Name, acp.Namespace))
+		}
+	}
+	if _, ok := any(zero).(ResourceNamer); ok {
+		return func(a O) Key[O] { return Key[O](any(a).(ResourceNamer).ResourceName()) }
+	}
+	if _, ok := any(zero).(uidable); ok {
+		return func(a O) Key[O] {
+			return Key[O](strconv.FormatUint(uint64(any(a).(uidable).uid()), 10))
+		}
+	}
+	if _, ok := any(zero).(kube.Client); ok {
+		return func(a O) Key[O] { return Key[O](any(a).(kube.Client).ClusterID()) }
+	}
+	return func(a O) Key[O] {
+		if ack := GetApplyConfigKey(a); ack != nil {
+			return Key[O](*ack)
+		}
+		panic(fmt.Sprintf("Cannot get Key, got %T", a))
+	}
+}
+
+// providedKey extracts the key function from a ResourceNamerProvider, panicking with a useful
+// message if the implementation returns nil (which would otherwise surface as an opaque
+// nil-function panic at first key computation).
+func providedKey[O any](p ResourceNamerProvider[O]) func(O) Key[O] {
+	fn := p.ResourceNameFunc()
+	if fn == nil {
+		panic(fmt.Sprintf("ResourceNameFunc for %v returned nil", ptr.TypeName[O]()))
+	}
+	return func(a O) Key[O] { return Key[O](fn(a)) }
 }
 
 // Named is a convenience struct. It is ideal to be embedded into a type that has a name and namespace,

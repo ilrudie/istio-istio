@@ -41,12 +41,13 @@ func NewStatusManyCollection[I controllers.Object, IStatus, O any](
 		synced: statusCh,
 	}
 	status := NewStaticCollection[ObjectWithStatus[I, IStatus]](statusSynced, nil, statusOpts...)
+	keyI := resolveKey[I]()
 	// When input is deleted, the transformation function wouldn't run.
 	// So we need to handle that explicitly
 	cleanupOnRemoval := func(i []Event[I]) {
 		for _, e := range i {
 			if e.Event == controllers.EventDelete {
-				status.DeleteObject(GetKey(e.Latest()))
+				status.DeleteObject(string(keyI(e.Latest())))
 			}
 		}
 	}
@@ -54,7 +55,7 @@ func NewStatusManyCollection[I controllers.Object, IStatus, O any](
 		st, objs := hf(ctx, i)
 		// Create/delete our status objects
 		if st == nil {
-			status.DeleteObject(GetKey(i))
+			status.DeleteObject(string(keyI(i)))
 		} else {
 			cs := ObjectWithStatus[I, IStatus]{
 				Obj:    i,

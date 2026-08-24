@@ -41,6 +41,8 @@ type join[T any] struct {
 	// avoiding duplicates from in-flight sub-collection events
 	processedState map[string]*T
 	eventHandlers  *handlerSet[T]
+	// key derives element keys, resolved once at construction. See ResourceNamerProvider.
+	key func(T) Key[T]
 
 	stop <-chan struct{}
 }
@@ -70,14 +72,14 @@ func (j *join[T]) List() []T {
 				first = false
 				if EnableAssertions {
 					for _, i := range objs {
-						seen.Insert(GetKey(i))
+						seen.Insert(string(j.key(i)))
 					}
 				}
 			} else {
 				// After the first, safely merge into the result
 				if EnableAssertions {
 					for _, i := range objs {
-						key := GetKey(i)
+						key := string(j.key(i))
 						if seen.InsertContains(key) {
 							panic("Join collection has overlapping keys in unchecked mode: " + key)
 						}
@@ -98,12 +100,12 @@ func (j *join[T]) List() []T {
 			first = false
 			found = sets.NewWithLength[string](len(objs))
 			for _, i := range objs {
-				found.Insert(GetKey(i))
+				found.Insert(string(j.key(i)))
 			}
 		} else {
 			// After the first, safely merge into the result
 			for _, i := range objs {
-				key := GetKey(i)
+				key := string(j.key(i))
 				if !found.InsertContains(key) {
 					// Only keep it if it is the first time we saw it, as our merging mechanism is to keep the first one
 					res = append(res, i)
@@ -184,7 +186,7 @@ func (j *join[T]) handleSubCollectionEvents(events []Event[T], sourceCollectionI
 	// Update processedState to track what we've processed
 	// This is used by RegisterBatch to provide consistent initial state
 	for _, ev := range refreshedEvents {
-		key := GetKey(ev.Latest())
+		key := string(j.key(ev.Latest()))
 		if ev.Event == controllers.EventDelete {
 			delete(j.processedState, key)
 		} else {
@@ -209,7 +211,7 @@ func (j *join[T]) getFromColIdx(idx int, key string) *T {
 	}
 
 	// HACK: StaticCollectoin (which we use in test) does not care what key you pass to Get
-	if GetKey(*obj) != key {
+	if string(j.key(*obj)) != key {
 		return nil
 	}
 
@@ -223,7 +225,7 @@ func (j *join[T]) refreshEvents(events []Event[T], sourceCollectionIdx int) []Ev
 	var result []Event[T]
 
 	for _, ev := range events {
-		key := GetKey(ev.Latest())
+		key := string(j.key(ev.Latest()))
 
 		// Check if any higher-priority collection (0...sourceCollectionIdx-1) has this key
 		hasHigherPriority := false
@@ -396,6 +398,7 @@ func JoinCollection[T any](cs []Collection[T], opts ...CollectionOption) Collect
 		synced:           synced,
 		collections:      c,
 		uncheckedOverlap: uncheckedOverlap,
+		key:              resolveKey[T](),
 		stop:             o.stop,
 		syncer: channelSyncer{
 			name:   o.name,

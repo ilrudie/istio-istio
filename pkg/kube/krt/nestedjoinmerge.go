@@ -84,6 +84,7 @@ func NestedJoinWithMergeCollection[T any](collections Collection[Collection[T]],
 			metadata:       o.metadata,
 			merge:          merge,
 			equals:         equalsForCollection[T](o),
+			key:            resolveKey[T](),
 			synced:         synced,
 			stop:           o.stop,
 			debugger:       o.debugger,
@@ -209,14 +210,14 @@ func (j *nestedjoinmerge[T]) handleCollectionUpdate(e Event[Collection[T]]) {
 	// Convert it to a map for easy lookup
 	oldItemsMap := make(map[Key[T]]T, len(oldItems))
 	for _, i := range oldItems {
-		key := getTypedKey(i)
+		key := j.key(i)
 		oldItemsMap[key] = i
 	}
 	// Now loop through the new collection and compare it to the old one
 	seen := sets.NewWithLength[string](len(oldItems))
 	finalEvents := make([]Event[T], 0, len(oldItems))
 	for _, i := range newCollectionValue.List() {
-		key := getTypedKey(i)
+		key := j.key(i)
 		// If we see it in the old collection, then it's an update
 		if oldItem, ok := oldItemsMap[key]; ok {
 			seen.Insert(string(key))
@@ -268,7 +269,7 @@ func (j *nestedjoinmerge[T]) handleCollectionUpdate(e Event[Collection[T]]) {
 		merged := j.calculateMerged(string(key))
 		if merged == nil {
 			finalEvents = append(finalEvents, Event[T]{Old: &existing, Event: controllers.EventDelete})
-			delete(j.outputs, getTypedKey(i))
+			delete(j.outputs, j.key(i))
 			continue
 		}
 
@@ -283,7 +284,7 @@ func (j *nestedjoinmerge[T]) handleCollectionUpdate(e Event[Collection[T]]) {
 
 	// Update the indexes
 	for _, e := range finalEvents {
-		j.updateIndexLocked(e, getTypedKey(e.Latest()))
+		j.updateIndexLocked(e, j.key(e.Latest()))
 	}
 
 	// Now send these events to the event handlers
@@ -313,7 +314,7 @@ func (j *nestedjoinmerge[T]) handleCollectionDelete(e Event[Collection[T]]) {
 	items := sets.NewWithLength[Key[T]](len(oldItems))
 	// First loop through the collection to get the deleted items by their keys
 	for _, c := range oldItems {
-		key := getTypedKey(c)
+		key := j.key(c)
 		items.Insert(key)
 	}
 

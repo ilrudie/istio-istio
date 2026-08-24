@@ -197,6 +197,34 @@ type ResourceNamer interface {
 	ResourceName() string
 }
 
+// ResourceNamerProvider is an optional interface that can be implemented by collection types.
+// ResourceNameFunc returns the key function for the type, letting collections resolve it once at
+// construction instead of calling ResourceName through ResourceNamer, which boxes value-typed
+// elements on every key computation. The typical implementation returns the type's ResourceName
+// method expression:
+//
+//	func (i ServiceInfo) ResourceName() string { ... }
+//	func (ServiceInfo) ResourceNameFunc() func(ServiceInfo) string { return ServiceInfo.ResourceName }
+//
+// ResourceNameFunc is invoked once on a zero-valued receiver when a collection is created, so it
+// must not depend on the receiver; for pointer element types it must be declared with a pointer
+// receiver and tolerate nil. The returned function must be consistent with ResourceName: keys are
+// compared across collections (joins, indexes, filters), so the two deriving different keys for
+// the same object would corrupt collection state.
+type ResourceNamerProvider[O any] interface {
+	ResourceNameFunc() func(O) string
+}
+
+// FastPathProvider is the composed opt-in for collection types that provide every fast-path
+// function. Collections resolve each granular interface independently, so implementing only one
+// is fine; this interface exists to document the full contract and to assert it in one line:
+//
+//	var _ krt.FastPathProvider[ServiceInfo] = ServiceInfo{}
+type FastPathProvider[O any] interface {
+	EqualerProvider[O]
+	ResourceNamerProvider[O]
+}
+
 // Equaler is an optional interface that can be implemented by collection types.
 // If implemented, this will be used to determine if an object changed.
 type Equaler[K any] interface {

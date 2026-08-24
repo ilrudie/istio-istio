@@ -437,12 +437,19 @@ func (TypedServiceInfo) EqualsFunc() func(a, b TypedServiceInfo) bool {
 	return TypedServiceInfo.Equals
 }
 
-// A drifted EqualsFunc signature would silently fall back to the slower Equaler probing; assert
-// the provider implementations at compile time instead.
+// ResourceNameFunc implements krt.ResourceNamerProvider, letting collections key
+// TypedServiceInfos with a direct call instead of probing through krt.ResourceNamer per key
+// computation.
+func (TypedServiceInfo) ResourceNameFunc() func(TypedServiceInfo) string {
+	return TypedServiceInfo.ResourceName
+}
+
+// A drifted EqualsFunc or ResourceNameFunc signature would silently fall back to the slower
+// probing paths; assert the provider implementations at compile time instead.
 var (
-	_ krt.EqualerProvider[TypedServiceInfo]   = TypedServiceInfo{}
-	_ krt.EqualerProvider[model.ServiceInfo]  = model.ServiceInfo{}
-	_ krt.EqualerProvider[model.WorkloadInfo] = model.WorkloadInfo{}
+	_ krt.FastPathProvider[TypedServiceInfo]   = TypedServiceInfo{}
+	_ krt.FastPathProvider[model.ServiceInfo]  = model.ServiceInfo{}
+	_ krt.FastPathProvider[model.WorkloadInfo] = model.WorkloadInfo{}
 )
 
 func (a Builder) serviceEntryServiceBuilder(

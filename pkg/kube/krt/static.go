@@ -41,6 +41,8 @@ type staticList[T any] struct {
 	indexes        map[string]staticListIndex[T]
 	// equals compares two elements, resolved once at construction. See WithEquals.
 	equals func(a, b T) bool
+	// key derives element keys, resolved once at construction. See ResourceNamerProvider.
+	key func(T) Key[T]
 }
 
 func NewStaticCollection[T any](synced Syncer, vals []T, opts ...CollectionOption) StaticCollection[T] {
@@ -49,9 +51,10 @@ func NewStaticCollection[T any](synced Syncer, vals []T, opts ...CollectionOptio
 		o.name = fmt.Sprintf("Static[%v]", ptr.TypeName[T]())
 	}
 
+	key := resolveKey[T]()
 	res := make(map[string]T, len(vals))
 	for _, v := range vals {
-		res[GetKey(v)] = v
+		res[string(key(v))] = v
 	}
 
 	if synced == nil {
@@ -67,6 +70,7 @@ func NewStaticCollection[T any](synced Syncer, vals []T, opts ...CollectionOptio
 		syncer:         synced,
 		indexes:        make(map[string]staticListIndex[T]),
 		equals:         equalsForCollection[T](o),
+		key:            key,
 	}
 
 	if o.metadata != nil {
@@ -131,7 +135,7 @@ func (s StaticCollection[T]) Reset(newState []T) {
 	var updates []Event[T]
 	nv := map[string]T{}
 	for _, incoming := range newState {
-		k := GetKey(incoming)
+		k := string(s.key(incoming))
 		nv[k] = incoming
 		if old, f := s.vals[k]; f {
 			if !s.equals(old, incoming) {
@@ -185,7 +189,7 @@ func (s *staticList[T]) ConditionalUpdateObject(obj T) {
 func (s *staticList[T]) updateObject(obj T, conditional bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	k := GetKey(obj)
+	k := string(s.key(obj))
 	old, f := s.vals[k]
 	s.vals[k] = obj
 	if f {

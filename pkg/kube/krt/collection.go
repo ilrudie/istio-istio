@@ -227,6 +227,9 @@ type manyCollection[I, O any] struct {
 
 	// equals compares two output objects, resolved once at construction. See WithEquals.
 	equals func(a, b O) bool
+	// keyI/keyO derive element keys, resolved once at construction. See ResourceNamerProvider.
+	keyI func(I) Key[I]
+	keyO func(O) Key[O]
 
 	// augmentation allows transforming an object into another for usage throughout the library. See WithObjectAugmentation.
 	augmentation func(a any) any
@@ -422,7 +425,7 @@ func (h *manyCollection[I, O]) onPrimaryInputEvent(items []Event[I]) {
 	// Between the events being enqueued and now, the input may have changed. Update with latest info.
 	// Note we now have the `blockNewEvents` lock so this is safe; any futures calls will do the same so always have up-to-date information.
 	for idx, ev := range items {
-		iKey := GetKey(ev.Latest())
+		iKey := string(h.keyI(ev.Latest()))
 		iObj := h.parent.GetKey(iKey)
 		if iObj == nil {
 			ev.Event = controllers.EventDelete
@@ -451,10 +454,10 @@ func (h *manyCollection[I, O]) handleChangedPrimaryInputEvents(items []Event[I])
 			continue
 		}
 		i := a.Latest()
-		iKey := getTypedKey(i)
+		iKey := h.keyI(i)
 
 		ctx := &collectionDependencyTracker[I, O]{manyCollection: h, key: iKey}
-		results := slices.GroupUnique(h.transformation(ctx, i), getTypedKey[O])
+		results := slices.GroupUnique(h.transformation(ctx, i), h.keyO)
 		recomputedResults[idx] = results
 		// Store new dependency state, to insert in the next loop under the lock
 		pendingDepStateUpdates[iKey] = ctx
@@ -465,7 +468,7 @@ func (h *manyCollection[I, O]) handleChangedPrimaryInputEvents(items []Event[I])
 	defer h.mu.Unlock()
 	for idx, a := range items {
 		i := a.Latest()
-		iKey := getTypedKey(i)
+		iKey := h.keyI(i)
 		if a.Event == controllers.EventDelete {
 			for oKey := range h.collectionState.mappings[iKey] {
 				oldRes, f := h.collectionState.outputs[oKey]
@@ -609,6 +612,8 @@ func newManyCollection[I, O any](
 	h := &manyCollection[I, O]{
 		transformation: hf,
 		equals:         equalsForCollection[O](opts),
+		keyI:           resolveKey[I](),
+		keyO:           resolveKey[O](),
 		collectionName: opts.name,
 		id:             nextUID(),
 		log:            log.WithLabels("owner", opts.name),

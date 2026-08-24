@@ -1498,6 +1498,12 @@ func (ServiceInfo) EqualsFunc() func(a, b ServiceInfo) bool {
 	return ServiceInfo.Equals
 }
 
+// ResourceNameFunc implements krt.ResourceNamerProvider, letting collections key ServiceInfos
+// with a direct call instead of probing through krt.ResourceNamer per key computation.
+func (ServiceInfo) ResourceNameFunc() func(ServiceInfo) string {
+	return ServiceInfo.ResourceName
+}
+
 func (i ServiceInfo) ResourceName() string {
 	return serviceResourceName(i.Service)
 }
@@ -1553,6 +1559,12 @@ func (i WorkloadInfo) Equals(other WorkloadInfo) bool {
 // direct call instead of probing through krt.Equaler per comparison.
 func (WorkloadInfo) EqualsFunc() func(a, b WorkloadInfo) bool {
 	return WorkloadInfo.Equals
+}
+
+// ResourceNameFunc implements krt.ResourceNamerProvider, letting collections key WorkloadInfos
+// with a direct call instead of probing through krt.ResourceNamer per key computation.
+func (WorkloadInfo) ResourceNameFunc() func(WorkloadInfo) string {
+	return WorkloadInfo.ResourceName
 }
 
 func workloadResourceName(w *workloadapi.Workload) string {
