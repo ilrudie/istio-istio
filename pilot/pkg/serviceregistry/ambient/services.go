@@ -68,7 +68,6 @@ func (a Builder) ServicesCollection(
 			krt.WithMetadata(krt.Metadata{
 				multicluster.ClusterKRTMetadataKey: clusterID,
 			}),
-			krt.WithEquals(TypedServiceInfo.Equals),
 		)...)
 
 	ServiceEntriesInfo := krt.NewManyCollection(serviceEntries, a.serviceEntryServiceBuilder(waypoints, namespaces, serviceEntryVisibility),
@@ -77,7 +76,6 @@ func (a Builder) ServicesCollection(
 			krt.WithMetadata(krt.Metadata{
 				multicluster.ClusterKRTMetadataKey: clusterID,
 			}),
-			krt.WithEquals(TypedServiceInfo.Equals),
 		)...)
 
 	allTypedServiceInfos := krt.JoinCollection([]krt.Collection[TypedServiceInfo]{ServicesInfo, ServiceEntriesInfo},
@@ -101,7 +99,6 @@ func (a Builder) ServicesCollection(
 			krt.WithMetadata(krt.Metadata{
 				multicluster.ClusterKRTMetadataKey: clusterID,
 			}),
-			krt.WithEquals(model.ServiceInfo.Equals),
 		)...,
 	)
 	return WorkloadServices
@@ -433,6 +430,20 @@ func (t TypedServiceInfo) ResourceName() string {
 func (t TypedServiceInfo) Equals(other TypedServiceInfo) bool {
 	return t.ServiceInfo.Equals(other.ServiceInfo)
 }
+
+// EqualsFunc implements krt.EqualerProvider, letting collections compare TypedServiceInfos with a
+// direct call instead of probing through krt.Equaler per comparison.
+func (TypedServiceInfo) EqualsFunc() func(a, b TypedServiceInfo) bool {
+	return TypedServiceInfo.Equals
+}
+
+// A drifted EqualsFunc signature would silently fall back to the slower Equaler probing; assert
+// the provider implementations at compile time instead.
+var (
+	_ krt.EqualerProvider[TypedServiceInfo]   = TypedServiceInfo{}
+	_ krt.EqualerProvider[model.ServiceInfo]  = model.ServiceInfo{}
+	_ krt.EqualerProvider[model.WorkloadInfo] = model.WorkloadInfo{}
+)
 
 func (a Builder) serviceEntryServiceBuilder(
 	waypoints krt.Collection[Waypoint],

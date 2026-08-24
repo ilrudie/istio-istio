@@ -203,6 +203,22 @@ type Equaler[K any] interface {
 	Equals(k K) bool
 }
 
+// EqualerProvider is an optional interface that can be implemented by collection types.
+// EqualsFunc returns the comparison function for the type, letting collections resolve it once at
+// construction instead of calling Equals through Equaler, which boxes value-typed elements on
+// every comparison. The typical implementation returns the type's Equals method expression:
+//
+//	func (i ServiceInfo) Equals(other ServiceInfo) bool { ... }
+//	func (ServiceInfo) EqualsFunc() func(a, b ServiceInfo) bool { return ServiceInfo.Equals }
+//
+// EqualsFunc is invoked once on a zero-valued receiver when a collection is created, so it must
+// not depend on the receiver; for pointer element types it must be declared with a pointer
+// receiver and tolerate nil. If the type also implements Equaler, the returned function must be
+// consistent with Equals.
+type EqualerProvider[O any] interface {
+	EqualsFunc() func(a, b O) bool
+}
+
 // LabelSelectorer is an optional interface that can be implemented by collection types.
 // If implemented, this will be used to determine an objects' LabelSelectors
 type LabelSelectorer interface {

@@ -56,6 +56,36 @@ type equalsEmbedsProto struct {
 	Extra string
 }
 
+type equalsProviderOnly struct{ A, B string }
+
+func (equalsProviderOnly) EqualsFunc() func(a, b equalsProviderOnly) bool {
+	return func(a, b equalsProviderOnly) bool { return a.A == b.A }
+}
+
+type equalsProviderPointerReceiver struct{ A, B string }
+
+func (*equalsProviderPointerReceiver) EqualsFunc() func(a, b equalsProviderPointerReceiver) bool {
+	return func(a, b equalsProviderPointerReceiver) bool { return a.A == b.A }
+}
+
+type equalsProviderPointerElement struct{ A, B string }
+
+func (*equalsProviderPointerElement) EqualsFunc() func(a, b *equalsProviderPointerElement) bool {
+	return func(a, b *equalsProviderPointerElement) bool { return a.A == b.A }
+}
+
+type equalsProviderAndEqualer struct{ A, B string }
+
+func (e equalsProviderAndEqualer) Equals(o equalsProviderAndEqualer) bool { return e.A == o.A }
+
+func (equalsProviderAndEqualer) EqualsFunc() func(a, b equalsProviderAndEqualer) bool {
+	return equalsProviderAndEqualer.Equals
+}
+
+type equalsProviderNil struct{ A string }
+
+func (equalsProviderNil) EqualsFunc() func(a, b equalsProviderNil) bool { return nil }
+
 func testResolveEqualsParity[O any](t *testing.T, name string, a, b O, want bool) {
 	t.Helper()
 	assert.Equal(t, Equal(a, b), want, name+": Equal")
@@ -94,6 +124,22 @@ func TestResolveEquals(t *testing.T) {
 	// over DeepEqual.
 	testResolveEqualsParity[equalsIface](t, "interface", equalsIfaceImpl{"x", "1"}, equalsIfaceImpl{"x", "2"}, true)
 	testResolveEqualsParity[equalsIface](t, "interface unequal", equalsIfaceImpl{"x", "1"}, equalsIfaceImpl{"y", "1"}, false)
+
+	// EqualerProvider: the type's provided function must win over DeepEqual, in both the resolved
+	// and probing paths, for every receiver/element shape.
+	testResolveEqualsParity(t, "provider", equalsProviderOnly{"x", "1"}, equalsProviderOnly{"x", "2"}, true)
+	testResolveEqualsParity(t, "provider unequal", equalsProviderOnly{"x", "1"}, equalsProviderOnly{"y", "1"}, false)
+	testResolveEqualsParity(t, "provider pointer receiver",
+		equalsProviderPointerReceiver{"x", "1"}, equalsProviderPointerReceiver{"x", "2"}, true)
+	testResolveEqualsParity(t, "provider pointer element",
+		&equalsProviderPointerElement{"x", "1"}, &equalsProviderPointerElement{"x", "2"}, true)
+	testResolveEqualsParity(t, "provider and equaler",
+		equalsProviderAndEqualer{"x", "1"}, equalsProviderAndEqualer{"x", "2"}, true)
+}
+
+func TestResolveEqualsProviderNil(t *testing.T) {
+	// A nil EqualsFunc result is a programmer error, reported at resolution time.
+	assertPanics(t, func() { resolveEquals[equalsProviderNil]() })
 }
 
 func TestResolveEqualsEmbeddedProto(t *testing.T) {
@@ -148,6 +194,23 @@ type benchEqualsBig struct {
 
 func (b benchEqualsBig) Equals(o benchEqualsBig) bool { return b.S1 == o.S1 && b.S2 == o.S2 }
 
+// benchEqualsBigProvider is benchEqualsBig with an EqualerProvider implementation, kept separate
+// so the probe/resolved cases above still measure the Equaler tiers.
+type benchEqualsBigProvider struct {
+	S1, S2, S3 string
+	M          map[string]string
+	P          *int
+	Pad        [320]byte
+}
+
+func (b benchEqualsBigProvider) Equals(o benchEqualsBigProvider) bool {
+	return b.S1 == o.S1 && b.S2 == o.S2
+}
+
+func (benchEqualsBigProvider) EqualsFunc() func(a, b benchEqualsBigProvider) bool {
+	return benchEqualsBigProvider.Equals
+}
+
 func BenchmarkEquals(b *testing.B) {
 	x := benchEqualsBig{S1: "a", S2: "b", S3: "c", M: map[string]string{"k": "v"}}
 	y := benchEqualsBig{S1: "a", S2: "b", S3: "d", M: map[string]string{"k": "v"}}
@@ -175,6 +238,18 @@ func BenchmarkEquals(b *testing.B) {
 		b.ResetTimer()
 		for n := 0; n < b.N; n++ {
 			if !eq(x, y) {
+				b.Fatal("expected equal")
+			}
+		}
+	})
+	b.Run("provider", func(b *testing.B) {
+		px := benchEqualsBigProvider{S1: "a", S2: "b", S3: "c", M: map[string]string{"k": "v"}}
+		py := benchEqualsBigProvider{S1: "a", S2: "b", S3: "d", M: map[string]string{"k": "v"}}
+		eq := resolveEquals[benchEqualsBigProvider]()
+		b.ReportAllocs()
+		b.ResetTimer()
+		for n := 0; n < b.N; n++ {
+			if !eq(px, py) {
 				b.Fatal("expected equal")
 			}
 		}

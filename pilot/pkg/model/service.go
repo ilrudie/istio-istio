@@ -1492,6 +1492,12 @@ func (i ServiceInfo) Equals(other ServiceInfo) bool {
 		i.VisibilityConfigured == other.VisibilityConfigured
 }
 
+// EqualsFunc implements krt.EqualerProvider, letting collections compare ServiceInfos with a
+// direct call instead of probing through krt.Equaler per comparison.
+func (ServiceInfo) EqualsFunc() func(a, b ServiceInfo) bool {
+	return ServiceInfo.Equals
+}
+
 func (i ServiceInfo) ResourceName() string {
 	return serviceResourceName(i.Service)
 }
@@ -1541,6 +1547,12 @@ func (i WorkloadInfo) Equals(other WorkloadInfo) bool {
 		i.Source == other.Source &&
 		i.CreationTime.Equal(other.CreationTime) &&
 		i.Waypoint.Equals(other.Waypoint)
+}
+
+// EqualsFunc implements krt.EqualerProvider, letting collections compare WorkloadInfos with a
+// direct call instead of probing through krt.Equaler per comparison.
+func (WorkloadInfo) EqualsFunc() func(a, b WorkloadInfo) bool {
+	return WorkloadInfo.Equals
 }
 
 func workloadResourceName(w *workloadapi.Workload) string {

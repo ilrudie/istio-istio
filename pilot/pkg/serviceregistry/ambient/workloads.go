@@ -88,20 +88,20 @@ func (a Builder) WorkloadsCollection(
 			namespaces,
 			nodes,
 		),
-		append(opts.WithName("PodWorkloads"), krt.WithEquals(model.WorkloadInfo.Equals))...,
+		opts.WithName("PodWorkloads")...,
 	)
 	// Workloads coming from workloadEntries. These are 1:1 with WorkloadEntry.
 	WorkloadEntryWorkloads := krt.NewCollection(
 		workloadEntries,
 		a.workloadEntryWorkloadBuilder(meshConfig, authorizationPolicies, peerAuthsByNs, waypoints, workloadServices, WorkloadServicesNamespaceIndex, namespaces),
-		append(opts.WithName("WorkloadEntryWorkloads"), krt.WithEquals(model.WorkloadInfo.Equals))...,
+		opts.WithName("WorkloadEntryWorkloads")...,
 	)
 	// Workloads coming from serviceEntries. These are inlined workloadEntries (under `spec.endpoints`); these serviceEntries will
 	// also be generating `workloadapi.Service` definitions in the `ServicesCollection` logic.
 	ServiceEntryWorkloads := krt.NewManyCollection(
 		serviceEntries,
 		a.serviceEntryWorkloadBuilder(meshConfig, authorizationPolicies, peerAuthsByNs, waypoints, namespaces, workloadServices),
-		append(opts.WithName("ServiceEntryWorkloads"), krt.WithEquals(model.WorkloadInfo.Equals))...,
+		opts.WithName("ServiceEntryWorkloads")...,
 	)
 	// Workloads coming from endpointSlices. These are for *manually added* endpoints. Typically, Kubernetes will insert each pod
 	// into the EndpointSlice. This is because Kubernetes has 3 APIs in its model: Service, Pod, and EndpointSlice.
@@ -111,13 +111,13 @@ func (a Builder) WorkloadsCollection(
 	EndpointSliceWorkloads := krt.NewManyCollection(
 		endpointSlices,
 		a.endpointSlicesBuilder(meshConfig, workloadServices),
-		append(opts.WithName("EndpointSliceWorkloads"), krt.WithEquals(model.WorkloadInfo.Equals))...)
+		opts.WithName("EndpointSliceWorkloads")...)
 
 	NetworkGatewayWorkloads := krt.NewManyFromNothing[model.WorkloadInfo](func(ctx krt.HandlerContext) []model.WorkloadInfo {
 		meshCfg := krt.FetchOne(ctx, meshConfig.AsCollection())
 		all := LookupAllNetworkGateway(ctx, a.Networks.NetworkGateways)
 		return slices.Map(all, convertGateway(meshCfg))
-	}, append(opts.WithName("NetworkGatewayWorkloads"), krt.WithEquals(model.WorkloadInfo.Equals))...)
+	}, opts.WithName("NetworkGatewayWorkloads")...)
 
 	Workloads := krt.JoinCollection(
 		[]krt.Collection[model.WorkloadInfo]{
