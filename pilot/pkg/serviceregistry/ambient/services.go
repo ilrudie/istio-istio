@@ -447,9 +447,10 @@ func (TypedServiceInfo) ResourceNameFunc() func(TypedServiceInfo) string {
 // A drifted EqualsFunc or ResourceNameFunc signature would silently fall back to the slower
 // probing paths; assert the provider implementations at compile time instead.
 var (
-	_ krt.FastPathProvider[TypedServiceInfo]   = TypedServiceInfo{}
-	_ krt.FastPathProvider[model.ServiceInfo]  = model.ServiceInfo{}
-	_ krt.FastPathProvider[model.WorkloadInfo] = model.WorkloadInfo{}
+	_ krt.FastPathProvider[TypedServiceInfo]            = TypedServiceInfo{}
+	_ krt.FastPathProvider[model.ServiceInfo]           = model.ServiceInfo{}
+	_ krt.FastPathProvider[model.WorkloadInfo]          = model.WorkloadInfo{}
+	_ krt.FastPathProvider[model.WorkloadAuthorization] = model.WorkloadAuthorization{}
 )
 
 func (a Builder) serviceEntryServiceBuilder(

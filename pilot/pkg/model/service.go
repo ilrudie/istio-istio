@@ -1765,8 +1765,21 @@ func (i WorkloadAuthorization) Equals(other WorkloadAuthorization) bool {
 		i.Binding.Equals(other.Binding)
 }
 
+// EqualsFunc implements krt.EqualerProvider, letting collections compare WorkloadAuthorizations
+// with a direct call instead of probing through krt.Equaler per comparison.
+func (WorkloadAuthorization) EqualsFunc() func(a, b WorkloadAuthorization) bool {
+	return WorkloadAuthorization.Equals
+}
+
 func (i WorkloadAuthorization) ResourceName() string {
 	return i.Authorization.GetNamespace() + "/" + i.Authorization.GetName()
+}
+
+// ResourceNameFunc implements krt.ResourceNamerProvider, letting collections key
+// WorkloadAuthorizations with a direct call instead of probing through krt.ResourceNamer per key
+// computation.
+func (WorkloadAuthorization) ResourceNameFunc() func(WorkloadAuthorization) string {
+	return WorkloadAuthorization.ResourceName
 }
 
 type LabelSelector struct {
