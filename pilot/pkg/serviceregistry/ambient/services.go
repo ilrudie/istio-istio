@@ -61,7 +61,7 @@ func (a Builder) ServicesCollection(
 	serviceEntryVisibility krt.Singleton[model.ServiceEntryVisibilityMatcher],
 	opts krt.OptionsBuilder,
 	precompute bool,
-) krt.Collection[model.ServiceInfo] {
+) krt.Collection[*model.ServiceInfo] {
 	ServicesInfo := krt.NewCollection(services, a.serviceServiceBuilder(waypoints, namespaces, meshConfig, precompute),
 		append(
 			opts.WithName("ServicesInfo"),
@@ -87,7 +87,7 @@ func (a Builder) ServicesCollection(
 		return []string{ts.Service.Hostname}
 	})
 
-	WorkloadServices := krt.NewManyCollection(
+	WorkloadServices := krt.NewManyPointerCollection(
 		allTypedServiceInfosByHostname.AsCollection(opts.WithName("AllTypedServiceInfosByHostname")...),
 		func(ctx krt.HandlerContext, ios krt.IndexObject[string, TypedServiceInfo]) []model.ServiceInfo {
 			if len(ios.Objects) == 0 {
@@ -153,7 +153,7 @@ func selectWorkloadServices(typedServiceInfos []TypedServiceInfo) []model.Servic
 
 func GlobalNestedWorkloadServicesCollection(
 	localCluster *multicluster.Cluster,
-	localServiceInfos krt.Collection[model.ServiceInfo],
+	localServiceInfos krt.Collection[*model.ServiceInfo],
 	localWaypoints krt.Collection[Waypoint],
 	ctrl *multicluster.Controller,
 	localServiceEntries krt.Collection[*networkingclient.ServiceEntry],
@@ -167,7 +167,9 @@ func GlobalNestedWorkloadServicesCollection(
 	// This will contain the serviceinfos derived from Services AND ServiceEntries
 	LocalServiceInfosWithCluster := krt.MapCollection(
 		localServiceInfos,
-		wrapObjectWithCluster[model.ServiceInfo](localCluster.ID),
+		func(obj *model.ServiceInfo) krt.ObjectWithCluster[model.ServiceInfo] {
+			return krt.ObjectWithCluster[model.ServiceInfo]{ClusterID: localCluster.ID, Object: obj}
+		},
 		opts.WithName("LocalServiceInfosWithCluster")...,
 	)
 
@@ -424,7 +426,7 @@ func (t TypedServiceInfo) ResourceName() string {
 }
 
 func (t TypedServiceInfo) Equals(other TypedServiceInfo) bool {
-	return t.ServiceInfo.Equals(other.ServiceInfo)
+	return t.ServiceInfo.Equals(&other.ServiceInfo)
 }
 
 func (a Builder) serviceEntryServiceBuilder(

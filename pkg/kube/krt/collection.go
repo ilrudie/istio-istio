@@ -584,6 +584,23 @@ func NewCollection[I, O any](c Collection[I], hf TransformationSingle[I, O], opt
 	return newManyCollection(c, hm, o, nil)
 }
 
+// NewPointerCollection is like NewCollection, but retains the pointer returned by the
+// transformation as the collection value. Published objects must not be mutated.
+func NewPointerCollection[I, O any](c Collection[I], hf TransformationSingle[I, O], opts ...CollectionOption) Collection[*O] {
+	o := buildCollectionOptions(opts...)
+	if o.name == "" {
+		o.name = fmt.Sprintf("PointerCollection[%v,%v]", ptr.TypeName[I](), ptr.TypeName[O]())
+	}
+	hm := func(ctx HandlerContext, i I) []*O {
+		res := hf(ctx, i)
+		if res == nil {
+			return nil
+		}
+		return []*O{res}
+	}
+	return newManyCollection(c, hm, o, nil)
+}
+
 // NewManyCollection transforms a Collection[I] to a Collection[O] by applying the provided transformation function.
 // This applies for one-to-many relationships between I and O.
 // For zero-to-one, use NewSingleton. For one-to-one, use NewCollection.
@@ -593,6 +610,24 @@ func NewManyCollection[I, O any](c Collection[I], hf TransformationMulti[I, O], 
 		o.name = fmt.Sprintf("ManyCollection[%v,%v]", ptr.TypeName[I](), ptr.TypeName[O]())
 	}
 	return newManyCollection[I, O](c, hf, o, nil)
+}
+
+// NewManyPointerCollection is like NewManyCollection, but retains pointers to the
+// objects returned by the transformation. Published objects must not be mutated.
+func NewManyPointerCollection[I, O any](c Collection[I], hf TransformationMulti[I, O], opts ...CollectionOption) Collection[*O] {
+	o := buildCollectionOptions(opts...)
+	if o.name == "" {
+		o.name = fmt.Sprintf("ManyPointerCollection[%v,%v]", ptr.TypeName[I](), ptr.TypeName[O]())
+	}
+	hm := func(ctx HandlerContext, i I) []*O {
+		values := hf(ctx, i)
+		res := make([]*O, len(values))
+		for i := range values {
+			res[i] = ptr.Of(values[i])
+		}
+		return res
+	}
+	return newManyCollection[I, *O](c, hm, o, nil)
 }
 
 func newManyCollection[I, O any](

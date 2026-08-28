@@ -314,3 +314,14 @@ func NewManyFromNothing[O any](hf TransformationEmptyToMulti[O], opts ...Collect
 	}, opts...)
 	return col
 }
+
+// NewManyPointersFromNothing is like NewManyFromNothing, but retains pointers to
+// the objects returned by the transformation. Published objects must not be mutated.
+func NewManyPointersFromNothing[O any](hf TransformationEmptyToMulti[O], opts ...CollectionOption) Collection[*O] {
+	// Disable debugging on the internal static collection, else we end up with duplicates
+	staticOpts := append(slices.Clone(opts), WithDebugging(nil))
+	dummyCollection := NewStatic[dummyValue](&dummyValue{}, true, staticOpts...).AsCollection()
+	return NewManyPointerCollection[dummyValue, O](dummyCollection, func(ctx HandlerContext, _ dummyValue) []O {
+		return hf(ctx)
+	}, opts...)
+}

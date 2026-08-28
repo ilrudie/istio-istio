@@ -261,3 +261,54 @@ func BenchmarkControllers(b *testing.B) {
 		benchmark(b, NewLegacy)
 	})
 }
+
+type largeSelectorObject struct {
+	krt.Named
+	selector map[string]string
+	padding  [152]byte
+}
+
+func (s largeSelectorObject) GetLabelSelector() map[string]string {
+	return s.selector
+}
+
+func BenchmarkFetchLargeSelectorObject(b *testing.B) {
+	log.FindScope("krt").SetOutputLevel(log.InfoLevel)
+	const count = 1000
+	values := make([]largeSelectorObject, 0, count)
+	for i := range count {
+		values = append(values, largeSelectorObject{
+			Named:    krt.Named{Namespace: "ns", Name: fmt.Sprintf("service-%d", i)},
+			selector: map[string]string{"app": fmt.Sprintf("app-%d", i)},
+		})
+	}
+	pointers := make([]*largeSelectorObject, len(values))
+	for i := range values {
+		pointers[i] = &values[i]
+	}
+
+	valueCollection := krt.NewStaticCollection(nil, values)
+	valueIndex := krt.NewNamespaceIndex(valueCollection)
+	pointerCollection := krt.NewStaticCollection(nil, pointers)
+	pointerIndex := krt.NewNamespaceIndex(pointerCollection)
+	labels := map[string]string{"app": "app-42"}
+
+	b.Run("values", func(b *testing.B) {
+		for b.Loop() {
+			result := krt.Fetch(krt.TestingDummyContext{}, valueCollection,
+				krt.FilterIndex(valueIndex, "ns"), krt.FilterSelectsNonEmpty(labels))
+			if len(result) != 1 {
+				b.Fatalf("unexpected result count: %d", len(result))
+			}
+		}
+	})
+	b.Run("pointers", func(b *testing.B) {
+		for b.Loop() {
+			result := krt.Fetch(krt.TestingDummyContext{}, pointerCollection,
+				krt.FilterIndex(pointerIndex, "ns"), krt.FilterSelectsNonEmpty(labels))
+			if len(result) != 1 {
+				b.Fatalf("unexpected result count: %d", len(result))
+			}
+		}
+	})
+}

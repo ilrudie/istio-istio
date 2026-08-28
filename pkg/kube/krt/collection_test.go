@@ -861,3 +861,20 @@ func TestCollectionMetadata(t *testing.T) {
 
 	assert.Equal(t, SimplePods.Metadata(), meta)
 }
+
+func TestPointerCollectionReplacesPublishedObject(t *testing.T) {
+	stop := test.NewStop(t)
+	input := krt.NewStaticCollection(nil, []SimplePod{{Named: Named{Name: "pod"}, IP: "1.1.1.1"}}, krt.WithStop(stop))
+	collection := krt.NewPointerCollection(input, func(_ krt.HandlerContext, pod SimplePod) *SimplePod {
+		return &pod
+	}, krt.WithStop(stop))
+
+	assert.EventuallyEqual(t, collection.HasSynced, true)
+	original := collection.List()[0]
+	input.UpdateObject(SimplePod{Named: Named{Name: "pod"}, IP: "2.2.2.2"})
+	assert.EventuallyEqual(t, func() string {
+		return collection.List()[0].IP
+	}, "2.2.2.2")
+
+	assert.Equal(t, original.IP, "1.1.1.1")
+}
