@@ -324,12 +324,26 @@ type EdsUpdateFn func(shard ShardKey, hostname string, namespace string, entry [
 // reduce the time when subsetting or split-horizon is used. This design assumes pilot
 // tracks all endpoints in the mesh and they fit in RAM - so limit is few M endpoints.
 // It is possible to split the endpoint tracking in future.
+// EndpointsUpdate is one service's endpoint set within an EDSUpdateBatch.
+type EndpointsUpdate struct {
+	Hostname  string
+	Namespace string
+	// Endpoints is the full endpoint set for this shard; nil or empty removes the shard's endpoints.
+	Endpoints []*IstioEndpoint
+}
+
 type XDSUpdater interface {
 	// EDSUpdate is called when the list of endpoints or labels in a Service is changed.
 	// For each cluster and hostname, the full list of active endpoints (including empty list)
 	// must be sent. The shard name is used as a key - current implementation is using the
 	// registry name.
 	EDSUpdate(shard ShardKey, hostname string, namespace string, entry []*IstioEndpoint)
+
+	// EDSUpdateBatch is EDSUpdate for several hostnames of the same shard that changed together,
+	// for example the hosts of one ServiceEntry after one of its WorkloadEntries changed.
+	// Implementations should request a single push covering every hostname that needs one, so a
+	// proxy sees all of them in the same response rather than one push per hostname.
+	EDSUpdateBatch(shard ShardKey, updates []EndpointsUpdate)
 
 	// EDSCacheUpdate is called when the list of endpoints or labels in a Service is changed.
 	// For each cluster and hostname, the full list of active endpoints (including empty list)

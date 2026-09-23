@@ -3292,6 +3292,8 @@ type pushRequestRecorder struct {
 }
 
 func (p *pushRequestRecorder) EDSUpdate(model.ShardKey, string, string, []*model.IstioEndpoint) {}
+func (p *pushRequestRecorder) EDSUpdateBatch(model.ShardKey, []model.EndpointsUpdate)           {}
+
 func (p *pushRequestRecorder) EDSCacheUpdate(model.ShardKey, string, string, []*model.IstioEndpoint) {
 }
 func (p *pushRequestRecorder) SvcUpdate(model.ShardKey, string, string, model.Event) {}

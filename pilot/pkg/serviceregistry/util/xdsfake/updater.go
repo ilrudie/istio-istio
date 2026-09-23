@@ -139,6 +139,18 @@ func (fx *Updater) EDSUpdate(c model.ShardKey, hostname string, ns string, entry
 	}
 }
 
+func (fx *Updater) EDSUpdateBatch(c model.ShardKey, updates []model.EndpointsUpdate) {
+	for _, u := range updates {
+		select {
+		case fx.Events <- Event{Type: "eds", ID: u.Hostname, Endpoints: u.Endpoints, Namespace: u.Namespace}:
+		default:
+		}
+	}
+	if fx.Delegate != nil {
+		fx.Delegate.EDSUpdateBatch(c, updates)
+	}
+}
+
 func (fx *Updater) EDSCacheUpdate(c model.ShardKey, hostname, ns string, entry []*model.IstioEndpoint) {
 	select {
 	case fx.Events <- Event{Type: "eds cache", ID: hostname, Endpoints: entry, Namespace: ns}:

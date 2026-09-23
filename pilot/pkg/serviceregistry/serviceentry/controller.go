@@ -341,25 +341,34 @@ func (s *Controller) buildCollections() {
 func (s *Controller) pushServiceEndpointUpdates(events []krt.Event[InstancesByNamespaceHost]) {
 	shard := model.ShardKeyFromRegistry(s)
 
+	updates := make([]model.EndpointsUpdate, 0, len(events))
+	var dnsUpdated sets.Set[model.ConfigKey]
 	for _, e := range events {
 		obj := e.Latest()
 		if e.Event == controllers.EventDelete {
-			// TODO: SvcUpdate should not be necessary here since EDSUpdate with no endpoints will already delete the service shard,
+			// TODO: SvcUpdate should not be necessary here since an empty endpoint update will already delete the service shard,
 			// it only increments the counter and does not request a push.
 			s.XdsUpdater.SvcUpdate(shard, obj.Hostname, obj.Namespace, model.EventDelete)
-			s.XdsUpdater.EDSUpdate(shard, obj.Hostname, obj.Namespace, nil)
-		} else {
-			instances := slices.Map(obj.Instances, func(i *WorkloadServiceInstance) *model.IstioEndpoint {
-				return i.Endpoint
-			})
-			s.XdsUpdater.EDSUpdate(shard, obj.Hostname, obj.Namespace, instances)
-			if obj.HasDNSServiceEndpoint && e.Event == controllers.EventUpdate {
-				s.XdsUpdater.ConfigUpdate(&model.PushRequest{
-					ConfigsUpdated: sets.New(model.ConfigKey{Kind: kind.ServiceEntry, Name: obj.Hostname, Namespace: obj.Namespace}),
-					Reason:         model.NewReasonStats(model.EndpointUpdate),
-				})
-			}
+			updates = append(updates, model.EndpointsUpdate{Hostname: obj.Hostname, Namespace: obj.Namespace})
+			continue
 		}
+		instances := slices.Map(obj.Instances, func(i *WorkloadServiceInstance) *model.IstioEndpoint {
+			return i.Endpoint
+		})
+		updates = append(updates, model.EndpointsUpdate{Hostname: obj.Hostname, Namespace: obj.Namespace, Endpoints: instances})
+		if obj.HasDNSServiceEndpoint && e.Event == controllers.EventUpdate {
+			if dnsUpdated == nil {
+				dnsUpdated = sets.New[model.ConfigKey]()
+			}
+			dnsUpdated.Insert(model.ConfigKey{Kind: kind.ServiceEntry, Name: obj.Hostname, Namespace: obj.Namespace})
+		}
+	}
+	s.XdsUpdater.EDSUpdateBatch(shard, updates)
+	if len(dnsUpdated) > 0 {
+		s.XdsUpdater.ConfigUpdate(&model.PushRequest{
+			ConfigsUpdated: dnsUpdated,
+			Reason:         model.NewReasonStats(model.EndpointUpdate),
+		})
 	}
 }
 

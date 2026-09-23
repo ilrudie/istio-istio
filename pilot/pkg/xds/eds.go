@@ -67,6 +67,27 @@ func (s *DiscoveryServer) EDSUpdate(shard model.ShardKey, serviceName string, na
 	}
 }
 
+// EDSUpdateBatch applies endpoint updates for several hostnames of one shard and requests one push
+func (s *DiscoveryServer) EDSUpdateBatch(shard model.ShardKey, updates []model.EndpointsUpdate) {
+	configKeys := sets.NewWithLength[model.ConfigKey](len(updates))
+	for _, u := range updates {
+		inboundEDSUpdates.Increment()
+		switch s.Env.EndpointIndex.UpdateServiceEndpoints(shard, u.Hostname, u.Namespace, u.Endpoints, true) {
+		case model.IncrementalPush:
+			configKeys.Insert(model.ConfigKey{Kind: kind.Endpoints, Name: u.Hostname, Namespace: u.Namespace})
+		case model.FullPush:
+			configKeys.Insert(model.ConfigKey{Kind: kind.ServiceEntry, Name: u.Hostname, Namespace: u.Namespace})
+		}
+	}
+	if len(configKeys) == 0 {
+		return
+	}
+	s.ConfigUpdate(&model.PushRequest{
+		ConfigsUpdated: configKeys,
+		Reason:         model.NewReasonStats(model.EndpointUpdate),
+	})
+}
+
 // EDSCacheUpdate computes destination address membership across all clusters and networks.
 // This is the main method implementing EDS.
 // It replaces InstancesByPort in model - instead of iterating over all endpoints it uses

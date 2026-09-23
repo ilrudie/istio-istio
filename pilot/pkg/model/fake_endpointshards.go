@@ -53,6 +53,12 @@ func (f *FakeEndpointIndexUpdater) EDSUpdate(shard ShardKey, serviceName string,
 	}
 }
 
+func (f *FakeEndpointIndexUpdater) EDSUpdateBatch(shard ShardKey, updates []EndpointsUpdate) {
+	for _, u := range updates {
+		f.EDSUpdate(shard, u.Hostname, u.Namespace, u.Endpoints)
+	}
+}
+
 func (f *FakeEndpointIndexUpdater) EDSCacheUpdate(shard ShardKey, serviceName string, namespace string, eps []*IstioEndpoint) {
 	f.Index.UpdateServiceEndpoints(shard, serviceName, namespace, eps, false)
 }

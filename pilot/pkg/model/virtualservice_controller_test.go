@@ -797,10 +797,12 @@ type fakeXDSUpdater struct {
 func (f *fakeXDSUpdater) ConfigUpdate(*PushRequest)                                 { f.pushCount.Add(1) }
 func (f *fakeXDSUpdater) EDSUpdate(ShardKey, string, string, []*IstioEndpoint)      {}
 func (f *fakeXDSUpdater) EDSCacheUpdate(ShardKey, string, string, []*IstioEndpoint) {}
-func (f *fakeXDSUpdater) SvcUpdate(ShardKey, string, string, Event)                 {}
-func (f *fakeXDSUpdater) ProxyUpdate(cluster.ID, string)                            {}
-func (f *fakeXDSUpdater) RemoveShard(ShardKey)                                      {}
-func (f *fakeXDSUpdater) PruneShard(ShardKey, map[string]sets.String)               {}
+
+func (f *fakeXDSUpdater) EDSUpdateBatch(ShardKey, []EndpointsUpdate)  {}
+func (f *fakeXDSUpdater) SvcUpdate(ShardKey, string, string, Event)   {}
+func (f *fakeXDSUpdater) ProxyUpdate(cluster.ID, string)              {}
+func (f *fakeXDSUpdater) RemoveShard(ShardKey)                        {}
+func (f *fakeXDSUpdater) PruneShard(ShardKey, map[string]sets.String) {}
 
 func setupControllerWithXDS(t *testing.T, xds XDSUpdater, objs ...config.Config) (*VirtualServiceController, *FakeStore) {
 	stop := test.NewStop(t)

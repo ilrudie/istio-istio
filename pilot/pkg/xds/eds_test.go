@@ -38,6 +38,7 @@ import (
 	"istio.io/istio/pilot/pkg/model"
 	"istio.io/istio/pilot/pkg/networking/util"
 	"istio.io/istio/pilot/pkg/serviceregistry/memory"
+	"istio.io/istio/pilot/pkg/serviceregistry/provider"
 	"istio.io/istio/pilot/pkg/xds"
 	v3 "istio.io/istio/pilot/pkg/xds/v3"
 	xdsfake "istio.io/istio/pilot/test/xds"
@@ -739,6 +740,58 @@ func TestEDSServiceResolutionUpdate(t *testing.T) {
 				t.Fatalf("endpoints not expected for  %s,  but got %v", "edsdns.svc.cluster.local", adscConn.EndpointsJSON())
 			}
 		})
+	}
+}
+
+// TestEDSUpdateBatch validates that endpoint updates for several hosts delivered in one batch
+// produce a single EDS push carrying every changed cluster, and that unchanged hosts in the
+// batch are skipped.
+func TestEDSUpdateBatch(t *testing.T) {
+	s := xdsfake.NewFakeDiscoveryServer(t, xdsfake.FakeOptions{})
+	addEdsCluster(s, "batch-a.svc.cluster.local", "http", "10.0.0.1", 8080)
+	addEdsCluster(s, "batch-b.svc.cluster.local", "http", "10.0.0.2", 8080)
+	addEdsCluster(s, "batch-c.svc.cluster.local", "http", "10.0.0.3", 8080)
+	s.EnsureSynced(t)
+
+	adscon := s.Connect(nil, nil, watchEds)
+	testEndpoints("10.0.0.1", "outbound|8080||batch-a.svc.cluster.local", adscon, t)
+	testEndpoints("10.0.0.2", "outbound|8080||batch-b.svc.cluster.local", adscon, t)
+	testEndpoints("10.0.0.3", "outbound|8080||batch-c.svc.cluster.local", adscon, t)
+	adscon.WaitClear()
+
+	eps := func(addr string) []*model.IstioEndpoint {
+		return []*model.IstioEndpoint{{
+			Addresses:       []string{addr},
+			EndpointPort:    8080,
+			ServicePortName: "http",
+			ServiceAccount:  "sa",
+		}}
+	}
+	shard := model.ShardKey{Cluster: s.MemRegistry.ClusterID, Provider: provider.Mock}
+	s.Discovery.EDSUpdateBatch(shard, []model.EndpointsUpdate{
+		{Hostname: "batch-a.svc.cluster.local", Endpoints: eps("10.0.1.1")},
+		{Hostname: "batch-b.svc.cluster.local", Endpoints: eps("10.0.1.2")},
+		// Unchanged; must resolve to NoPush and stay out of the push.
+		{Hostname: "batch-c.svc.cluster.local", Endpoints: eps("10.0.0.3")},
+	})
+
+	// Exactly one EDS response should arrive, carrying both changed clusters.
+	upd, err := adscon.Wait(5*time.Second, v3.EndpointType)
+	assert.NoError(t, err)
+	if !slices.Contains(upd, v3.EndpointType) {
+		t.Fatalf("expected EDS push, got %v", upd)
+	}
+	testEndpoints("10.0.1.1", "outbound|8080||batch-a.svc.cluster.local", adscon, t)
+	testEndpoints("10.0.1.2", "outbound|8080||batch-b.svc.cluster.local", adscon, t)
+	// The ADS client keeps only the clusters present in the last response, so the unchanged
+	// host being absent proves it was excluded from the incremental push.
+	if _, f := adscon.GetEndpoints()["outbound|8080||batch-c.svc.cluster.local"]; f {
+		t.Fatalf("unchanged host batch-c was included in the incremental EDS push")
+	}
+
+	upd, _ = adscon.Wait(100*time.Millisecond, v3.EndpointType)
+	if slices.Contains(upd, v3.EndpointType) {
+		t.Fatalf("expected a single batched EDS push, got a second one: %v", upd)
 	}
 }
 
