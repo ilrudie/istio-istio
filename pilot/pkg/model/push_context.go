@@ -259,6 +259,10 @@ type PushContext struct {
 	// PushVersion describes the push version this push context was computed for
 	PushVersion string
 
+	// Generation orders contexts created by a discovery server. It is assigned before
+	// publication and immutable thereafter; zero is the initial, unversioned context.
+	Generation uint64
+
 	// JwtKeyResolver holds a reference to the JWT key resolver instance.
 	JwtKeyResolver *JwksResolver
 
@@ -387,6 +391,11 @@ type PushRequest struct {
 	// Note that this does not include time spent debouncing.
 	Start time.Time
 
+	// SkipCacheWrite prevents responses generated from a reused context from populating
+	// the shared cache with a freshness token assigned after that context was captured.
+	// It must survive merging, even when the merged request selects a newer context.
+	SkipCacheWrite bool
+
 	// Reason represents the reason for requesting a push. This should only be a fixed set of values,
 	// to avoid unbounded cardinality in metrics. If this is not set, it may be automatically filled in later.
 	// There should only be multiple reasons if the push request is the result of two distinct triggers, rather than
@@ -514,11 +523,9 @@ func (pr *PushRequest) Merge(other *PushRequest) *PushRequest {
 
 	// If either is forced we need a forced push
 	pr.Forced = pr.Forced || other.Forced
+	pr.SkipCacheWrite = pr.SkipCacheWrite || other.SkipCacheWrite
 
-	// The other push context is presumed to be later and more up to date
-	if other.Push != nil {
-		pr.Push = other.Push
-	}
+	pr.Push = NewestPushContext(pr.Push, other.Push)
 
 	if pr.ConfigsUpdated == nil {
 		pr.ConfigsUpdated = other.ConfigsUpdated
@@ -563,10 +570,11 @@ func (pr *PushRequest) CopyMerge(other *PushRequest) *PushRequest {
 		Start: pr.Start,
 
 		// If either is forced we need a forced push
-		Forced: pr.Forced || other.Forced,
+		Forced:         pr.Forced || other.Forced,
+		SkipCacheWrite: pr.SkipCacheWrite || other.SkipCacheWrite,
 
-		// The other push context is presumed to be later and more up to date
-		Push: other.Push,
+		// Concurrent fan-out can enqueue an older context after a newer one.
+		Push: NewestPushContext(pr.Push, other.Push),
 
 		// Merge the two reasons. Note that we shouldn't deduplicate here, or we would under count
 		Reason: reason,
@@ -593,6 +601,15 @@ func (pr *PushRequest) CopyMerge(other *PushRequest) *PushRequest {
 	}
 
 	return merged
+}
+
+// NewestPushContext returns the non-nil context with the highest generation.
+// If both contexts have the same generation, b wins. If both are nil, it returns nil.
+func NewestPushContext(a, b *PushContext) *PushContext {
+	if b == nil || (a != nil && a.Generation > b.Generation) {
+		return a
+	}
+	return b
 }
 
 func (pr *PushRequest) IsRequest() bool {

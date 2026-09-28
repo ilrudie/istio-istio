@@ -235,7 +235,7 @@ func (l *lruCache[K]) assertUnchanged(key K, existing *discovery.Resource, repla
 }
 
 func (l *lruCache[K]) Add(k K, entry dependents, pushReq *PushRequest, value *discovery.Resource) {
-	if pushReq == nil || pushReq.Start.Equal(time.Time{}) {
+	if pushReq == nil || pushReq.SkipCacheWrite || pushReq.Start.Equal(time.Time{}) {
 		return
 	}
 	// It will not overflow until year 2262

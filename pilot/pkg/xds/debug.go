@@ -678,7 +678,7 @@ func (s *DiscoveryServer) getResourceTypes(req *http.Request) []string {
 func (s *DiscoveryServer) getConfigDumpByResourceType(conn *Connection, req *model.PushRequest, ts []string) map[string][]*discoveryv3.Resource {
 	dumps := make(map[string][]*discoveryv3.Resource)
 	if req == nil {
-		req = &model.PushRequest{Push: conn.proxy.LastPushContext, Start: time.Now(), Forced: true}
+		req = &model.PushRequest{Push: conn.proxy.LastPushContext, Start: time.Now(), Forced: true, SkipCacheWrite: true}
 	}
 
 	for _, resourceType := range ts {
@@ -758,7 +758,7 @@ func (s *DiscoveryServer) getConfigDumpByResourceType(conn *Connection, req *mod
 // connectionConfigDump converts the connection internal state into an Envoy Admin API config dump proto
 // It is used in debugging to create a consistent object for comparison between Envoy and Pilot outputs
 func (s *DiscoveryServer) connectionConfigDump(conn *Connection, includeEds bool) (*admin.ConfigDump, error) {
-	req := &model.PushRequest{Push: conn.proxy.LastPushContext, Start: time.Now(), Forced: true}
+	req := &model.PushRequest{Push: conn.proxy.LastPushContext, Start: time.Now(), Forced: true, SkipCacheWrite: true}
 	version := req.Push.PushVersion
 
 	dump := s.getConfigDumpByResourceType(conn, req, []string{

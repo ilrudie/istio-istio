@@ -159,6 +159,53 @@ func TestConcurrentMerge(t *testing.T) {
 	}
 }
 
+func TestMergePushContextGeneration(t *testing.T) {
+	old := &PushContext{Generation: 1}
+	latest := &PushContext{Generation: 2}
+	for _, tt := range []struct {
+		name string
+		a, b *PushContext
+		want *PushContext
+	}{
+		{"in order", old, latest, latest},
+		{"out of order", latest, old, latest},
+		{"missing first", nil, latest, latest},
+		{"missing second", latest, nil, latest},
+		{"both missing", nil, nil, nil},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			firstTime := time.Now()
+			a := &PushRequest{Push: tt.a, Start: firstTime, ConfigsUpdated: sets.New(ConfigKey{Kind: kind.DestinationRule, Name: "dr"})}
+			b := &PushRequest{Push: tt.b, Start: firstTime.Add(time.Second), AddressesUpdated: sets.New("pod")}
+			copied := a.CopyMerge(b)
+			if a.Push != tt.a || b.Push != tt.b {
+				t.Fatal("CopyMerge modified an input context")
+			}
+			for _, result := range []*PushRequest{copied, a.Merge(b)} {
+				if result.Push != tt.want {
+					t.Fatal("merge did not retain the newest context")
+				}
+				assert.Equal(t, result.Start, firstTime)
+				assert.Equal(t, result.ConfigsUpdated, sets.New(ConfigKey{Kind: kind.DestinationRule, Name: "dr"}))
+				assert.Equal(t, result.AddressesUpdated, sets.New("pod"))
+			}
+		})
+	}
+}
+
+func TestMergeSkipCacheWrite(t *testing.T) {
+	for _, left := range []bool{false, true} {
+		for _, right := range []bool{false, true} {
+			a := &PushRequest{SkipCacheWrite: left}
+			b := &PushRequest{SkipCacheWrite: right}
+			assert.Equal(t, a.CopyMerge(b).SkipCacheWrite, left || right)
+			assert.Equal(t, a.SkipCacheWrite, left)
+			assert.Equal(t, b.SkipCacheWrite, right)
+			assert.Equal(t, a.Merge(b).SkipCacheWrite, left || right)
+		}
+	}
+}
+
 func TestEnvoyFilters(t *testing.T) {
 	envoyFilters := []*EnvoyFilterWrapper{
 		convertToEnvoyFilterWrapper(&config.Config{

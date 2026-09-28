@@ -290,6 +290,7 @@ func (s *DiscoveryServer) dropCacheForRequest(req *model.PushRequest) {
 // instead of initializing a new one.
 func (s *DiscoveryServer) Push(req *model.PushRequest, initializePushContext bool) {
 	if !initializePushContext {
+		req.SkipCacheWrite = true
 		req.Push = s.globalPushContext()
 		s.dropCacheForRequest(req)
 		s.AdsPushAll(req)
@@ -306,8 +307,8 @@ func (s *DiscoveryServer) Push(req *model.PushRequest, initializePushContext boo
 	// PushContext is reset after a config change. Previous status is
 	// saved.
 	t0 := time.Now()
-	versionLocal := s.NextVersion()
-	push := s.initPushContext(req, oldPushContext, versionLocal)
+	versionLocal, generation := s.NextVersion()
+	push := s.initPushContext(req, oldPushContext, versionLocal, generation)
 	initContextTime := time.Since(t0)
 	log.Debugf("InitContext %v for push took %s", versionLocal, initContextTime)
 	pushContextInitTime.Record(initContextTime.Seconds())
@@ -541,13 +542,13 @@ func doSendPushes(stopCh <-chan struct{}, semaphore chan struct{}, queue *PushQu
 	}
 }
 
-// initPushContext creates a global push context and stores it on the environment. Note: while this
-// method is technically thread safe (there are no data races), it should not be called in parallel;
-// if it is, then we may start two push context creations (say A, and B), but then write them in
-// reverse order, leaving us with a final version of A, which may be incomplete.
-func (s *DiscoveryServer) initPushContext(req *model.PushRequest, oldPushContext *model.PushContext, version string) *model.PushContext {
+// initPushContext creates and publishes a global push context. Context-building pushes
+// must be serialized by the debouncer to avoid losing updates through concurrent builds
+// based on the same old snapshot. Debounce bypasses reuse the existing context instead.
+func (s *DiscoveryServer) initPushContext(req *model.PushRequest, oldPushContext *model.PushContext, version string, generation uint64) *model.PushContext {
 	push := model.NewPushContext()
 	push.PushVersion = version
+	push.Generation = generation
 	push.JwtKeyResolver = s.JwtKeyResolver
 	push.InitContext(s.Env, oldPushContext, req)
 
@@ -622,6 +623,7 @@ func (s *DiscoveryServer) WaitForRequestLimit(ctx context.Context) error {
 	return s.RequestRateLimit.Wait(wait)
 }
 
-func (s *DiscoveryServer) NextVersion() string {
-	return time.Now().Format(time.RFC3339) + "/" + strconv.FormatUint(s.pushVersion.Inc(), 10)
+func (s *DiscoveryServer) NextVersion() (string, uint64) {
+	generation := s.pushVersion.Inc()
+	return time.Now().Format(time.RFC3339) + "/" + strconv.FormatUint(generation, 10), generation
 }

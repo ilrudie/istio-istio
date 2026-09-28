@@ -99,6 +99,19 @@ func TestAddTwoEntries(t *testing.T) {
 	})
 }
 
+func TestSkipCacheWrite(t *testing.T) {
+	c := newTypedXdsCache[uint64]()
+	k := entry{key: "key"}
+	stale := &discovery.Resource{Name: "stale"}
+	fresh := &discovery.Resource{Name: "fresh"}
+	c.ClearAll()
+	c.Add(k.Key(), k, &PushRequest{Start: time.Now(), SkipCacheWrite: true}, stale)
+	assert.Equal(t, c.Get(k.Key()), (*discovery.Resource)(nil))
+	c.Add(k.Key(), k, &PushRequest{Start: time.Now()}, fresh)
+	c.Add(k.Key(), k, &PushRequest{Start: time.Now(), SkipCacheWrite: true}, stale)
+	assert.Equal(t, c.Get(k.Key()), fresh)
+}
+
 func TestCleanIndexesOnAddExistant(t *testing.T) {
 	test.SetForTest(t, &features.XDSCacheIndexClearInterval, 5*time.Millisecond)
 	zeroTime := time.Time{}

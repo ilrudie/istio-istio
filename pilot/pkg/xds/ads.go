@@ -164,9 +164,10 @@ func (s *DiscoveryServer) processRequest(req *discovery.DiscoveryRequest, con *C
 		// The usage of LastPushTime (rather than time.Now()), is critical here for correctness; This time
 		// is used by the XDS cache to determine if a entry is stale. If we use Now() with an old push context,
 		// we may end up overriding active cache entries with stale ones.
-		Start:  con.proxy.LastPushTime,
-		Delta:  delta,
-		Forced: true,
+		Start:          con.proxy.LastPushTime,
+		SkipCacheWrite: con.proxy.LastPushSkipCacheWrite,
+		Delta:          delta,
+		Forced:         true,
 	}
 
 	// SidecarScope for the proxy may not have been updated based on this pushContext.
@@ -448,6 +449,7 @@ func (s *DiscoveryServer) computeProxyState(proxy *model.Proxy, request *model.P
 	proxy.LastPushContext = push
 	if request != nil {
 		proxy.LastPushTime = request.Start
+		proxy.LastPushSkipCacheWrite = request.SkipCacheWrite
 	}
 }
 
@@ -476,7 +478,7 @@ func (s *DiscoveryServer) DeltaAggregatedResources(stream discovery.AggregatedDi
 
 // Compute and send the new configuration for a connection.
 func (s *DiscoveryServer) pushConnection(con *Connection, pushEv *Event) error {
-	pushRequest := pushEv.pushRequest
+	pushRequest := pushRequestForProxy(con.proxy, pushEv.pushRequest)
 
 	if !model.OnlyHasConfigsOfKind(pushRequest.ConfigsUpdated, kind.Endpoints) {
 		// Update Proxy with current information.
@@ -499,6 +501,36 @@ func (s *DiscoveryServer) pushConnection(con *Connection, pushEv *Event) error {
 	}
 	proxiesConvergeDelay.Record(time.Since(pushRequest.Start).Seconds())
 	return nil
+}
+
+// pushRequestForProxy preserves context ordering even when an old request arrives
+// after a newer one was delivered. Keep the changes: live endpoint/address updates
+// still need to be sent. Requests are shared across proxies, so copy before editing.
+func pushRequestForProxy(proxy *model.Proxy, req *model.PushRequest) *model.PushRequest {
+	if req.Push == nil {
+		return req
+	}
+	proxy.Lock()
+	defer proxy.Unlock()
+	push := model.NewestPushContext(proxy.LastPushContext, req.Push)
+	skipCacheWrite := req.SkipCacheWrite || push != req.Push ||
+		// Equal generations retain the request's context, but must inherit suppression.
+		(proxy.LastPushSkipCacheWrite && proxy.LastPushContext != nil && req.Push.Generation == proxy.LastPushContext.Generation)
+	if skipCacheWrite {
+		// Endpoint-only pushes skip computeProxyState, but must still suppress writes
+		// for subsequent client requests using the proxy's saved context.
+		proxy.LastPushSkipCacheWrite = true
+	}
+
+	if push == req.Push && skipCacheWrite == req.SkipCacheWrite {
+		// The request already has the selected context and cache-write policy.
+		return req
+	}
+	// Preserve the shared request for other proxies.
+	updated := *req
+	updated.Push = push
+	updated.SkipCacheWrite = skipCacheWrite
+	return &updated
 }
 
 // PushOrder defines the order that updates will be pushed in. Any types not listed here will be pushed in random
@@ -545,10 +577,11 @@ func (s *DiscoveryServer) ProxyUpdate(clusterID cluster.ID, ip string) {
 	}
 
 	s.pushQueue.Enqueue(connection, &model.PushRequest{
-		Push:   s.globalPushContext(),
-		Start:  time.Now(),
-		Reason: model.NewReasonStats(model.ProxyUpdate),
-		Forced: true,
+		SkipCacheWrite: true,
+		Push:           s.globalPushContext(),
+		Start:          time.Now(),
+		Reason:         model.NewReasonStats(model.ProxyUpdate),
+		Forced:         true,
 	})
 }
 
@@ -556,9 +589,10 @@ func (s *DiscoveryServer) ProxyUpdate(clusterID cluster.ID, ip string) {
 // Mainly used in Debug interface.
 func AdsPushAll(s *DiscoveryServer) {
 	s.AdsPushAll(&model.PushRequest{
-		Push:   s.globalPushContext(),
-		Reason: model.NewReasonStats(model.DebugTrigger),
-		Forced: true,
+		SkipCacheWrite: true,
+		Push:           s.globalPushContext(),
+		Reason:         model.NewReasonStats(model.DebugTrigger),
+		Forced:         true,
 	})
 }
 

@@ -150,7 +150,7 @@ func (s *DiscoveryServer) StreamDeltas(stream DeltaDiscoveryStream) error {
 
 // Compute and send the new configuration for a connection.
 func (s *DiscoveryServer) pushConnectionDelta(con *Connection, pushEv *Event) error {
-	pushRequest := pushEv.pushRequest
+	pushRequest := pushRequestForProxy(con.proxy, pushEv.pushRequest)
 
 	if !model.OnlyHasConfigsOfKind(pushRequest.ConfigsUpdated, kind.Endpoints) {
 		// Update Proxy with current information.
@@ -289,7 +289,8 @@ func (s *DiscoveryServer) processDeltaRequest(req *discovery.DeltaDiscoveryReque
 		// The usage of LastPushTime (rather than time.Now()), is critical here for correctness; This time
 		// is used by the XDS cache to determine if a entry is stale. If we use Now() with an old push context,
 		// we may end up overriding active cache entries with stale ones.
-		Start: con.proxy.LastPushTime,
+		Start:          con.proxy.LastPushTime,
+		SkipCacheWrite: con.proxy.LastPushSkipCacheWrite,
 		Delta: model.ResourceDelta{
 			// Record sub/unsub, but drop synthetic wildcard info
 			Subscribed:   subs,
@@ -343,10 +344,11 @@ func (s *DiscoveryServer) processDeltaRequest(req *discovery.DeltaDiscoveryReque
 func (s *DiscoveryServer) forceEDSPush(con *Connection) error {
 	if dwr := con.proxy.GetWatchedResource(v3.EndpointType); dwr != nil {
 		request := &model.PushRequest{
-			Push:   con.proxy.LastPushContext,
-			Reason: model.NewReasonStats(model.DependentResource),
-			Start:  con.proxy.LastPushTime,
-			Forced: true,
+			Push:           con.proxy.LastPushContext,
+			Reason:         model.NewReasonStats(model.DependentResource),
+			Start:          con.proxy.LastPushTime,
+			SkipCacheWrite: con.proxy.LastPushSkipCacheWrite,
+			Forced:         true,
 		}
 		deltaLog.Infof("ADS:%s: FORCE %s PUSH for warming.", v3.GetShortType(v3.EndpointType), con.ID())
 		return s.pushDeltaXds(con, dwr, request)

@@ -429,6 +429,8 @@ type Proxy struct {
 	// LastPushContext; the XDS cache depends on knowing the time of the PushContext to determine if a
 	// key is stale or not.
 	LastPushTime time.Time
+	// LastPushSkipCacheWrite carries cache-write suppression to client-triggered requests.
+	LastPushSkipCacheWrite bool
 }
 
 type WatchedResource = xds.WatchedResource
