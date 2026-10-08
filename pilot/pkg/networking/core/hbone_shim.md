@@ -82,3 +82,54 @@ metadata preservation, retaining the original listener, and cache isolation.
 The Envoy shim tests separately exercise CONNECT failures, safe POST retries,
 H2 multiplexing, resets, and GOAWAY. A real ztunnel/mTLS deployment has not yet
 been tested.
+
+## Optional GOAWAY destination preference
+
+A second proxy capability enables temporary avoidance of HBONE peers that send
+GOAWAY. The image must include both additional extensions:
+
+- `envoy.upstream_options.istio_hbone`
+- `envoy.load_balancing_policies.istio_hbone`
+
+Enable both flags on a supported waypoint or ingress proxy:
+
+```yaml
+proxyMetadata:
+  ENABLE_HBONE_ORIGINATION_SHIM: "true"
+  ENABLE_HBONE_GOAWAY_PREFERENCE: "true"
+proxyStatsMatcher:
+  inclusionPrefixes:
+  - "istio_hbone."
+```
+
+The second flag alone has no effect. Leaving it unset preserves the original shim
+configuration and allows an older shim-only image. The original checkpoint image
+`ilrudie/proxyv2:hbone-shim-poc-amd64` does not include the new extensions. Build a
+new image before enabling the second capability.
+
+Istiod adds the GOAWAY observer to `connect_originate` and wraps eligible EDS service
+clusters' round-robin, least-request, or random policies. It retains locality,
+weights, priority and warmup configuration. Consistent-hash, custom typed policies,
+and Envoy subset-LB configurations are skipped. DestinationRule subset clusters
+remain eligible if their effective policy is supported. Existing shim restrictions
+(application TLS, PROXY protocol, multi-network traffic) still apply. CDS cache keys
+include the second capability; EDS addresses and metadata do not change.
+
+The observer records the actual peer IP:port for 30 seconds. Selection maps endpoint
+metadata to that peer using `waypoint` before `local` and port 15008, matching the
+outer ORIGINAL_DST cluster. Hints are shared across workers and service clusters.
+They can therefore cover several destination ports, or several destinations behind
+one waypoint. A new connection's GOAWAY can extend the cooldown. A bounded cache
+and a 16-candidate selection budget limit resource use. These candidate selections
+do not spend network retry attempts. The caller's larger reselection budget is
+preserved. If no alternative is selected, the final child candidate is used.
+
+This is a soft preference within the child policy's locality and priority rules.
+It does not eject endpoints or change outlier health. Accepted streams can complete;
+existing application connections are not forcibly drained. GOAWAY does not authorize
+retrying application data that might already have reached the destination.
+
+Counters under `istio_hbone.` expose received hints, skipped candidates, fallback
+selections, and cache evictions. Preserve any existing stats matcher entries when
+adding the prefix above. These counters are process-wide; ordinary service-cluster
+connection failure/retry accounting remains separate.

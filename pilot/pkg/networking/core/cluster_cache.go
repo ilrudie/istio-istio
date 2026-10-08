@@ -44,6 +44,7 @@ type clusterCache struct {
 	proxyClusterID          string         // identifies the kubernetes cluster a proxy is in
 	proxyType               model.NodeType // identifies this proxy type
 	hboneShim               bool
+	hboneGoAwayPreference   bool
 	hbone                   bool
 	proxyView               model.ProxyView
 	metadataCerts           *metadataCerts // metadata certificates of proxy
@@ -88,6 +89,7 @@ func (t *clusterCache) Key() any {
 	h.WriteString(strconv.FormatBool(t.supportsIPv4))
 	h.Write(Separator)
 	h.WriteString(strconv.FormatBool(t.hboneShim))
+	h.WriteString(strconv.FormatBool(t.hboneGoAwayPreference))
 	h.Write(Separator)
 	h.WriteString(strconv.FormatBool(t.hbone))
 	h.Write(Separator)
@@ -207,6 +209,7 @@ func buildClusterKey(service *model.Service, port *model.Port, cb *ClusterBuilde
 		proxyView:               cb.proxyView,
 		hbone:                   cb.sendHbone,
 		hboneShim:               cb.hboneShim,
+		hboneGoAwayPreference:   cb.hboneGoAwayPreference,
 		http2:                   port.Protocol.IsHTTP2(),
 		downstreamAuto:          cb.sidecarProxy() && port.Protocol.IsUnsupported(),
 		supportsIPv4:            cb.supportsIPv4,

@@ -308,6 +308,10 @@ type NodeMetadata struct {
 	// contrib Istio HBONE shim. The binary must contain both shim extensions.
 	EnableHBONEOriginationShim StringBool `json:"ENABLE_HBONE_ORIGINATION_SHIM,omitempty"`
 
+	// EnableHBONEGoAwayPreference additionally opts a shim proxy into temporary avoidance
+	// of HBONE peers that send GOAWAY. Requires the custom GOAWAY extensions.
+	EnableHBONEGoAwayPreference StringBool `json:"ENABLE_HBONE_GOAWAY_PREFERENCE,omitempty"`
+
 	// DisableHBONESend, will disable sending HBONE.
 	// Warning: If this is enabled, ambient may break; use with caution.
 	DisableHBONESend StringBool `json:"DISABLE_HBONE_SEND,omitempty"`

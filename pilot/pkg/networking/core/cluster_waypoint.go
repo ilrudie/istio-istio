@@ -274,6 +274,7 @@ func (cb *ClusterBuilder) buildWaypointInboundVIPCluster(
 	if localCluster.cluster.GetType() == cluster.Cluster_EDS &&
 		util.UseHBONEOriginationShim(cb.hboneShim, svc, policy) {
 		localCluster.cluster.TransportSocket = util.WaypointHBONEOriginationShimTransportSocket()
+		cb.applyHBONEGoAwayPreference(localCluster.cluster)
 	}
 
 	cb.maybeApplyBaggageMetadataDiscovery(localCluster.cluster)
@@ -538,6 +539,11 @@ func (cb *ClusterBuilder) buildConnectOriginate(
 		},
 	}
 
+	if cb.hboneGoAwayPreference && name == ConnectOriginate {
+		c.TypedExtensionProtocolOptions[util.HBONEGoAwayOptions] = protoconv.TypedStructWithFields(
+			util.HBONEGoAwayOptionsType, map[string]any{},
+		)
+	}
 	c.AltStatName = util.DelimitedStatsPrefix(name)
 
 	return c

@@ -25,6 +25,10 @@ import (
 )
 
 const (
+	HBONEGoAwayOptions                     = "envoy.upstream_options.istio_hbone"
+	HBONEGoAwayLB                          = "envoy.load_balancing_policies.istio_hbone"
+	HBONEGoAwayOptionsType                 = "type.googleapis.com/envoy.extensions.filters.network.istio_hbone.v3alpha.GoAwayOptions"
+	HBONEGoAwayLBType                      = "type.googleapis.com/envoy.extensions.filters.network.istio_hbone.v3alpha.GoAwayLoadBalancingConfig"
 	HBONEOriginationShimListener           = "connect_originate_hbone_shim"
 	HBONEOriginationShimFilter             = "envoy.filters.network.istio_hbone"
 	HBONEOriginationShimTransport          = "envoy.transport_sockets.istio_hbone"
@@ -77,4 +81,9 @@ func HBONEOriginationShimTransportSocket(metadata []*internalupstream.InternalUp
 			HBONEOriginationShimUpstreamConfigType, map[string]any{"passthrough_metadata": passthrough},
 		)},
 	}
+}
+
+// HBONEGoAwayPreferenceEnabled requires both custom proxy capabilities.
+func HBONEGoAwayPreferenceEnabled(proxy *model.Proxy) bool {
+	return HBONEOriginationShimEnabled(proxy) && bool(proxy.Metadata.EnableHBONEGoAwayPreference)
 }
