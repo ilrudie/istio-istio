@@ -46,6 +46,10 @@ type MeshDataplane interface {
 
 	AddPodToMesh(ctx context.Context, pod *corev1.Pod, podIPs []netip.Addr, netNs string) error
 	RemovePodFromMesh(ctx context.Context, pod *corev1.Pod, isDelete bool) error
+	// DrainPodInMesh asks ztunnel to drain the inbound HBONE traffic of a pod that started
+	// terminating, if draining is enabled. It does not wait for ztunnel. The pod stays in the mesh
+	// until RemovePodFromMesh.
+	DrainPodInMesh(ctx context.Context, pod *corev1.Pod) error
 
 	// SyncHostProbeIPSet ensures an already-enrolled pod's probe IPs are present in the
 	// host probe ipset. It is an idempotent upsert used by the informer to self-heal

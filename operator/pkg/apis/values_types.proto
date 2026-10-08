@@ -213,6 +213,10 @@ message CNIAmbientConfig {
 
   // If enabled, the CNI plugin will retry checking whether a pod is ambient enabled when there are errors.
   google.protobuf.BoolValue enableAmbientDetectionRetry = 12;
+
+  // If enabled, the CNI agent asks ztunnel to drain an ambient pod's inbound HBONE traffic as soon as
+  // the pod starts terminating, so clients move to other endpoints before it exits.
+  google.protobuf.BoolValue drainTerminatingWorkloads = 13;
 }
 
 message CNIRepairConfig {

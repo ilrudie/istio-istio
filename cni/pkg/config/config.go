@@ -163,6 +163,9 @@ type InstallConfig struct {
 	// Whether to retry checking if a pod is ambient in the cni plugin when there are errors
 	EnableAmbientDetectionRetry bool
 
+	// Whether to ask ztunnel to drain the inbound HBONE traffic of an ambient pod when it starts terminating
+	AmbientDrainTerminatingWorkloads bool
+
 	// Whether native nftables should be used instead of iptable rules for traffic redirection
 	NativeNftables bool
 
@@ -252,6 +255,7 @@ func (c InstallConfig) String() string {
 	b.WriteString("AmbientDisableSafeUpgrade: " + fmt.Sprint(c.AmbientDisableSafeUpgrade) + "\n")
 	b.WriteString("AmbientReconcilePodRulesOnStartup: " + fmt.Sprint(c.AmbientReconcilePodRulesOnStartup) + "\n")
 	b.WriteString("EnableAmbientDetectionRetry: " + fmt.Sprint(c.EnableAmbientDetectionRetry) + "\n")
+	b.WriteString("AmbientDrainTerminatingWorkloads: " + fmt.Sprint(c.AmbientDrainTerminatingWorkloads) + "\n")
 
 	b.WriteString("NativeNftables: " + fmt.Sprint(c.NativeNftables) + "\n")
 	b.WriteString("ForceIptablesBinary: " + fmt.Sprint(c.ForceIptablesBinary) + "\n")

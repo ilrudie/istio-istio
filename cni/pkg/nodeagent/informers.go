@@ -32,6 +32,7 @@ import (
 	"istio.io/istio/pkg/kube/controllers"
 	"istio.io/istio/pkg/kube/kclient"
 	"istio.io/istio/pkg/monitoring"
+	"istio.io/istio/pkg/ptr"
 	"istio.io/istio/pkg/slices"
 )
 
@@ -328,6 +329,24 @@ func (s *InformerHandlers) reconcilePod(input any) error {
 				return err
 			}
 			return nil
+		}
+
+		// When an enrolled pod starts terminating, have ztunnel drain its inbound HBONE traffic, so
+		// peers move to other endpoints while the streams already running finish. This consults the
+		// old pod (see NOTE above) so it is sent once, on the transition, rather than on every later
+		// status update. Pods that were already terminating when this agent started are drained
+		// from the initial snapshot instead. A partially enrolled pod has no ztunnel proxy, so has
+		// nothing to drain. It is best effort, and not retried: RemovePodFromMesh still follows.
+		if isEnrolled && !isTerminated && oldPod.DeletionTimestamp == nil && currentPod.DeletionTimestamp != nil {
+			// The deletion timestamp is when the grace period ends, so the delete request itself was
+			// (to the second) that minus the grace period.
+			log.WithLabels(
+				"deletionTimestamp", currentPod.DeletionTimestamp.UTC().Format(time.RFC3339),
+				"gracePeriodSeconds", ptr.OrEmpty(currentPod.DeletionGracePeriodSeconds),
+			).Debugf("pod is terminating, draining it")
+			if err := s.dataplane.DrainPodInMesh(s.ctx, currentPod); err != nil {
+				log.Warnf("DrainPodInMesh for terminating pod returned error: %v", err)
+			}
 		}
 
 		// Self-heal the host probe ipset for an already-enrolled pod whose probe IP just

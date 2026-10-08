@@ -1,0 +1,12 @@
+apiVersion: release-notes/v2
+kind: feature
+area: traffic-management
+releaseNotes:
+- |
+  **Added** `ambient.drainTerminatingWorkloads` field in the `istio-cni` chart and the corresponding
+  `AMBIENT_DRAIN_TERMINATING_WORKLOADS` flag, off by default. When enabled, the ambient CNI agent asks
+  ztunnel to drain an ambient pod's inbound HBONE traffic as soon as the pod starts terminating: ztunnel
+  sends a graceful GOAWAY on the pod's inbound HBONE connections, and refuses new connections only when
+  the client marked them as retriable on another endpoint. This reduces errors during scale-down and
+  rollouts. It requires a ztunnel that advertises the `DRAIN_WORKLOAD` capability; older ztunnels are
+  never sent the new message.

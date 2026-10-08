@@ -80,6 +80,9 @@ _internal_defaults_do_not_set:
     shareHostNetworkNamespace: false
     # If enabled, the CNI agent will retry checking if a pod is ambient enabled when there are errors
     enableAmbientDetectionRetry: false
+    # If enabled, the CNI agent asks ztunnel to drain an ambient pod's inbound HBONE traffic as soon as the pod
+    # starts terminating, so clients move to other endpoints before it exits. Requires a ztunnel that supports it.
+    drainTerminatingWorkloads: false
 
 
   repair:

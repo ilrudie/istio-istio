@@ -127,6 +127,7 @@ var rootCmd = &cobra.Command{
 					DNSCapture:                 cfg.InstallConfig.AmbientDNSCapture,
 					EnableIPv6:                 cfg.InstallConfig.AmbientIPv6,
 					ReconcilePodRulesOnStartup: cfg.InstallConfig.AmbientReconcilePodRulesOnStartup,
+					DrainTerminatingWorkloads:  cfg.InstallConfig.AmbientDrainTerminatingWorkloads,
 					NativeNftables:             cfg.InstallConfig.NativeNftables,
 					ForceIptablesBinary:        cfg.InstallConfig.ForceIptablesBinary,
 				})
@@ -242,6 +243,8 @@ func init() {
 	registerStringParameter(constants.ZtunnelUDSAddress, "/var/run/ztunnel/ztunnel.sock", "The UDS server address which ztunnel will connect to")
 	registerBooleanParameter(constants.AmbientEnabled, false, "Whether ambient controller is enabled")
 	registerBooleanParameter(constants.EnableAmbientDetectionRetry, false, "Whether or not is ambient check is retried on error in the cni plugin")
+	registerBooleanParameter(constants.AmbientDrainTerminatingWorkloads, false,
+		"Whether to ask ztunnel to drain the inbound HBONE traffic of an ambient pod when it starts terminating")
 	// Repair
 	registerBooleanParameter(constants.RepairEnabled, true, "Whether to enable race condition repair or not")
 	registerBooleanParameter(constants.RepairDeletePods, false, "Controller will delete pods when detecting pod broken by race condition")
@@ -334,6 +337,7 @@ func constructConfig() (*config.Config, error) {
 		AmbientDisableSafeUpgrade:         viper.GetBool(constants.AmbientDisableSafeUpgrade),
 		AmbientReconcilePodRulesOnStartup: viper.GetBool(constants.AmbientReconcilePodRulesOnStartup),
 		EnableAmbientDetectionRetry:       viper.GetBool(constants.EnableAmbientDetectionRetry),
+		AmbientDrainTerminatingWorkloads:  viper.GetBool(constants.AmbientDrainTerminatingWorkloads),
 
 		NativeNftables:      viper.GetBool(constants.NativeNftables),
 		ForceIptablesBinary: os.Getenv("FORCE_IPTABLES_BINARY"),

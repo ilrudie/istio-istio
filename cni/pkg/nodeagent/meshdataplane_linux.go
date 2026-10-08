@@ -237,6 +237,12 @@ func (s *meshDataplane) RemovePodFromMesh(ctx context.Context, pod *corev1.Pod, 
 	return nil
 }
 
+// DrainPodInMesh asks ztunnel to drain the inbound HBONE traffic of a terminating pod. Nothing else
+// about the pod changes: it stays captured and annotated until RemovePodFromMesh.
+func (s *meshDataplane) DrainPodInMesh(ctx context.Context, pod *corev1.Pod) error {
+	return s.netServer.DrainPodInMesh(ctx, pod)
+}
+
 // SyncHostProbeIPSet re-asserts an already-enrolled pod's probe IPs in the host ipset
 // (see the MeshDataplane interface for why). addPodToHostAddrSet is an idempotent upsert.
 func (s *meshDataplane) SyncHostProbeIPSet(pod *corev1.Pod, podIPs []netip.Addr) error {

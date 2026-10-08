@@ -1330,6 +1330,60 @@ func TestInformerStillHandlesDeleteEventIfPodNotActuallyPresentAnymore(t *testin
 	fs.AssertExpectations(t)
 }
 
+func TestInformerDrainsPodOnceWhenItStartsTerminating(t *testing.T) {
+	setupLogging()
+	NodeName = "testnode"
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	terminating := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              "test",
+			Namespace:         "test",
+			UID:               "12345",
+			Annotations:       map[string]string{annotation.AmbientRedirection.Name: constants.AmbientRedirectionEnabled},
+			DeletionTimestamp: &metav1.Time{Time: time.Now()},
+			Finalizers:        []string{"test"},
+		},
+		Spec: corev1.PodSpec{
+			NodeName: NodeName,
+		},
+		Status: corev1.PodStatus{
+			PodIP: "11.1.1.12",
+			Phase: corev1.PodRunning,
+		},
+	}
+	running := terminating.DeepCopy()
+	running.DeletionTimestamp = nil
+	ns := &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   "test",
+			Labels: map[string]string{label.IoIstioDataplaneMode.Name: constants.DataplaneModeAmbient},
+		},
+	}
+
+	client := kube.NewFakeClient(ns, terminating)
+	fs := &fakeServer{}
+	handlers := setupHandlersWithFakeDataplane(ctx, client, fs)
+
+	// Draining is best effort: a failure is logged, and does not fail (and so retry) the event.
+	fs.On("DrainPodInMesh", ctx, mock.Anything).Once().Return(errors.New("no ztunnel connected"))
+	assert.NoError(t, handlers.reconcilePod(controllers.Event{
+		Event: controllers.EventUpdate,
+		Old:   running,
+		New:   terminating,
+	}))
+	fs.AssertExpectations(t)
+
+	// Later updates to the already terminating pod do not drain it again.
+	assert.NoError(t, handlers.reconcilePod(controllers.Event{
+		Event: controllers.EventUpdate,
+		Old:   terminating,
+		New:   terminating,
+	}))
+	fs.AssertNumberOfCalls(t, "DrainPodInMesh", 1)
+}
+
 // setupHandlersWithFakeDataplane wires the informer handlers to talk directly to the
 // fakeServer mock instead of the real meshDataplane, so tests can assert on
 // SyncHostProbeIPSet. The queue is intentionally not started tests drive

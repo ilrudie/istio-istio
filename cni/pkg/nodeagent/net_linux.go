@@ -58,6 +58,13 @@ func (s *NetServer) ConstructInitialSnapshot(existingAmbientPods []*corev1.Pod) 
 		log.Warnf("failed to construct initial ztunnel snapshot: %v", err)
 		consErr = append(consErr, err)
 	}
+	// Pods that started terminating before this agent did never produce the informer update that
+	// drains them. Record them now, so ztunnel is told to drain them after its snapshot.
+	for _, pod := range existingAmbientPods {
+		if pod.DeletionTimestamp != nil {
+			_ = s.DrainPodInMesh(context.Background(), pod)
+		}
+	}
 
 	if s.trafficManager.ReconcileModeEnabled() {
 		log.Info("inpod reconcile mode enabled")
@@ -187,6 +194,14 @@ func (s *NetServer) RemovePodFromMesh(ctx context.Context, pod *corev1.Pod, isDe
 		return err
 	}
 	return nil
+}
+
+// DrainPodInMesh is called when a pod starts terminating. It asks ztunnel to drain the pod's
+// inbound HBONE traffic, so peers move to other endpoints while the streams already running
+// finish. The pod stays in the mesh until RemovePodFromMesh. See ZtunnelServer.PodDraining.
+func (s *NetServer) DrainPodInMesh(ctx context.Context, pod *corev1.Pod) error {
+	log.WithLabels("ns", pod.Namespace, "name", pod.Name).Debug("draining pod in ztunnel")
+	return s.ztunnelServer.PodDraining(ctx, string(pod.UID))
 }
 
 func newNetServer(ztunnelServer ZtunnelServer, podNsMap *podNetnsCache, trafficManager trafficmanager.TrafficRuleManager, podNs PodNetnsFinder) *NetServer {

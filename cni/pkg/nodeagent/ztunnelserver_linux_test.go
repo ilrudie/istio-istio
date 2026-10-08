@@ -16,6 +16,7 @@ package nodeagent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -567,6 +568,149 @@ func TestZtunnelRemovePod(t *testing.T) {
 	mt.Assert(ztunnelConnected.Name(), nil, monitortest.Exactly(1))
 }
 
+func TestZtunnelPodDrainingOnlyGoesToCapableZtunnels(t *testing.T) {
+	mt := monitortest.New(t)
+	ctx, server, uid := startDrainServer(t, true)
+
+	capable := connectZtClientToServer(server.addr)
+	defer capable.Close()
+	sendHello(capable, zdsapi.Capability_DRAIN_WORKLOAD)
+	ackSnapshot(t, capable, 1)
+	incapable := connectZtClientToServer(server.addr)
+	defer incapable.Close()
+	sendHello(incapable)
+	ackSnapshot(t, incapable, 1)
+
+	assert.NoError(t, server.ztunServer.PodDraining(ctx, uid))
+	m, fds := readRequest(t, capable)
+	assert.Equal(t, len(fds), 0)
+	assert.Equal(t, m.GetDrain().GetUid(), uid)
+	sendAck(capable)
+	mt.Assert(workloadDrains.Name(), map[string]string{"result": "acked"}, monitortest.Exactly(1))
+
+	// The ztunnel that did not advertise DRAIN_WORKLOAD is never sent the message.
+	assertNoRequest(t, incapable)
+}
+
+func TestZtunnelPodDrainingDisabledSendsNothing(t *testing.T) {
+	ctx, server, uid := startDrainServer(t, false)
+
+	capable := connectZtClientToServer(server.addr)
+	defer capable.Close()
+	sendHello(capable, zdsapi.Capability_DRAIN_WORKLOAD)
+	ackSnapshot(t, capable, 1)
+
+	assert.NoError(t, server.ztunServer.PodDraining(ctx, uid))
+	assertNoRequest(t, capable)
+}
+
+func TestZtunnelPodDrainingResentAfterSnapshot(t *testing.T) {
+	mt := monitortest.New(t)
+	ctx, server, uid := startDrainServer(t, true)
+
+	// The pod starts terminating while no ztunnel is connected, for example while the agent or
+	// ztunnel restarts.
+	assert.NoError(t, server.ztunServer.PodDraining(ctx, uid))
+	mt.Assert(workloadDrains.Name(), map[string]string{"result": "skipped"}, monitortest.Exactly(1))
+
+	// A capable ztunnel that connects is told to drain it right after its snapshot.
+	capable := connectZtClientToServer(server.addr)
+	defer capable.Close()
+	sendHello(capable, zdsapi.Capability_DRAIN_WORKLOAD)
+	ackSnapshot(t, capable, 1)
+	m, _ := readRequest(t, capable)
+	assert.Equal(t, m.GetDrain().GetUid(), uid)
+	sendAck(capable)
+	mt.Assert(workloadDrains.Name(), map[string]string{"result": "acked"}, monitortest.Exactly(1))
+
+	// One that cannot drain is not.
+	incapable := connectZtClientToServer(server.addr)
+	defer incapable.Close()
+	sendHello(incapable)
+	ackSnapshot(t, incapable, 1)
+	assertNoRequest(t, incapable)
+}
+
+func TestZtunnelPodDeletedForgetsDrain(t *testing.T) {
+	ctx, server, uid := startDrainServer(t, true)
+
+	assert.NoError(t, server.ztunServer.PodDraining(ctx, uid))
+	assert.NoError(t, server.ztunServer.PodDeleted(ctx, uid))
+
+	capable := connectZtClientToServer(server.addr)
+	defer capable.Close()
+	sendHello(capable, zdsapi.Capability_DRAIN_WORKLOAD)
+	ackSnapshot(t, capable, 1)
+	assertNoRequest(t, capable)
+}
+
+func TestZtunnelPodDrainingDoesNotWaitForZtunnel(t *testing.T) {
+	ctx, server, uid := startDrainServer(t, true)
+
+	// A ztunnel that reads the drain but never acks it.
+	stuck := connectZtClientToServer(server.addr)
+	defer stuck.Close()
+	sendHello(stuck, zdsapi.Capability_DRAIN_WORKLOAD)
+	ackSnapshot(t, stuck, 1)
+	healthy := connectZtClientToServer(server.addr)
+	defer healthy.Close()
+	sendHello(healthy, zdsapi.Capability_DRAIN_WORKLOAD)
+	ackSnapshot(t, healthy, 1)
+
+	start := time.Now()
+	assert.NoError(t, server.ztunServer.PodDraining(ctx, uid))
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("PodDraining waited %v for ztunnel", elapsed)
+	}
+	m, _ := readRequest(t, stuck)
+	assert.Equal(t, m.GetDrain().GetUid(), uid)
+	// The healthy ztunnel is drained while the stuck one still holds its ack.
+	m, _ = readRequest(t, healthy)
+	assert.Equal(t, m.GetDrain().GetUid(), uid)
+	sendAck(healthy)
+}
+
+// startDrainServer starts a ztunnel server holding one pod, with draining enabled or not, and
+// returns the pod's uid.
+func startDrainServer(t *testing.T, drainEnabled bool) (context.Context, struct {
+	ztunServer *ztunnelServer
+	addr       string
+}, string,
+) {
+	setupLogging()
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	cache := &fakePodCache{}
+	t.Cleanup(fillCacheWithFakePods(cache, 1))
+	uid := maps.Keys(cache.pods)[0]
+	server := createStoppedServer(cache, uuid.New(), time.Second/10)
+	server.ztunServer.drainEnabled = drainEnabled
+	go server.ztunServer.Run(ctx)
+	t.Cleanup(func() { server.ztunServer.Close() })
+	return ctx, server, uid
+}
+
+// ackSnapshot acks the snapshot a newly connected ztunnel gets: each pod, then SnapshotSent.
+func ackSnapshot(t *testing.T, c *net.UnixConn, pods int) {
+	t.Helper()
+	for range pods {
+		readRequest(t, c)
+		sendAck(c)
+	}
+	m, _ := readRequest(t, c)
+	assert.Equal(t, m.GetSnapshotSent() != nil, true)
+	sendAck(c)
+}
+
+// assertNoRequest asserts the CNI sends ztunnel nothing more, for a short while.
+func assertNoRequest(t *testing.T, c *net.UnixConn) {
+	t.Helper()
+	m, _, err := readProto[zdsapi.WorkloadRequest](c, time.Second/5, nil)
+	if !errors.Is(err, os.ErrDeadlineExceeded) {
+		t.Fatalf("expected no request, got %v (err %v)", m, err)
+	}
+}
+
 // Test that a simulataneus pod delete and ztunnel disconenect does not deadlock
 func TestZtunnelPodDeletedDoesNotDeadlockOnDisconnectingConn(t *testing.T) {
 	setupLogging()
@@ -876,9 +1020,10 @@ func sendAck(c *net.UnixConn) {
 	c.Write(data)
 }
 
-func sendHello(c *net.UnixConn) {
+func sendHello(c *net.UnixConn, capabilities ...zdsapi.Capability) {
 	ack := &zdsapi.ZdsHello{
-		Version: zdsapi.Version_V1,
+		Version:      zdsapi.Version_V1,
+		Capabilities: capabilities,
 	}
 	data, err := proto.Marshal(ack)
 	if err != nil {

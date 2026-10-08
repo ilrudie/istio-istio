@@ -56,6 +56,14 @@ func (f *fakeServer) RemovePodFromMesh(ctx context.Context, pod *corev1.Pod, isD
 	return args.Error(0)
 }
 
+func (f *fakeServer) DrainPodInMesh(ctx context.Context, pod *corev1.Pod) error {
+	if f.testWG != nil {
+		defer f.testWG.Done()
+	}
+	args := f.Called(ctx, pod)
+	return args.Error(0)
+}
+
 func (f *fakeServer) SyncHostProbeIPSet(pod *corev1.Pod, podIPs []netip.Addr) error {
 	args := f.Called(pod, podIPs)
 	return args.Error(0)

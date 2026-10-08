@@ -20,6 +20,7 @@ data:
   AMBIENT_IPV6: {{ .Values.ambient.ipv6 | quote }}
   AMBIENT_RECONCILE_POD_RULES_ON_STARTUP: {{ .Values.ambient.reconcileIptablesOnStartup | quote }}
   ENABLE_AMBIENT_DETECTION_RETRY: {{ .Values.ambient.enableAmbientDetectionRetry | quote }}
+  AMBIENT_DRAIN_TERMINATING_WORKLOADS: {{ .Values.ambient.drainTerminatingWorkloads | quote }}
   {{- if .Values.cniConfFileName }} # K8S < 1.24 doesn't like empty values
   CNI_CONF_NAME: {{ .Values.cniConfFileName }} # Name of the CNI config file to create. Only override if you know the exact path your CNI requires..
   {{- end }}

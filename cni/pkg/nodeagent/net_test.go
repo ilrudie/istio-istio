@@ -382,6 +382,29 @@ func TestConstructInitialSnap(t *testing.T) {
 	}
 }
 
+func TestConstructInitialSnapDrainsTerminatingPods(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	setupLogging()
+	fixture := getTestFixure(ctx)
+
+	running := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "running", Namespace: "bar", UID: "11111111-4b68-4efa-917f-4b560e3e86aa"},
+		Status:     corev1.PodStatus{PodIP: "99.9.9.9", PodIPs: []corev1.PodIP{{IP: "99.9.9.9"}}},
+	}
+	terminating := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "terminating", Namespace: "bar", UID: "22222222-4b68-4efa-917f-4b560e3e86aa",
+			DeletionTimestamp: &metav1.Time{Time: time.Now()},
+		},
+		Status: corev1.PodStatus{PodIP: "99.9.9.8", PodIPs: []corev1.PodIP{{IP: "99.9.9.8"}}},
+	}
+
+	assert.NoError(t, fixture.netServer.ConstructInitialSnapshot([]*corev1.Pod{running, terminating}))
+	// Only the pod that was already terminating when the agent started is drained.
+	assert.Equal(t, fixture.ztunnelServer.drainedPods.Load(), int32(1))
+}
+
 func TestConstructInitialSnapReconcilesPodsIfIptConfiguratorSupportsReconciliation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

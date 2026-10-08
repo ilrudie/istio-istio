@@ -29,7 +29,9 @@ import (
 	"golang.org/x/time/rate"
 	v1 "k8s.io/api/core/v1"
 
+	istiolog "istio.io/istio/pkg/log"
 	"istio.io/istio/pkg/monitoring"
+	"istio.io/istio/pkg/util/sets"
 	"istio.io/istio/pkg/zdsapi"
 )
 
@@ -38,9 +40,27 @@ var readWriteDeadline = 5 * time.Second
 var ztunnelConnected = monitoring.NewGauge("ztunnel_connected",
 	"number of connections to ztunnel")
 
+var (
+	drainResultLabel = monitoring.CreateLabel("result")
+	workloadDrains   = monitoring.NewSum(
+		"istio_cni_workload_drains_total",
+		"The total number of DrainWorkload messages for terminating pods, by result: acked, ack_error, "+
+			"send_error, or skipped (no connected ztunnel supports draining).",
+	)
+	workloadDrainLatency = monitoring.NewDistribution(
+		"istio_cni_workload_drain_latency_seconds",
+		"Time from the CNI agent sending a DrainWorkload to ztunnel acking it.",
+		[]float64{.001, .005, .01, .05, .1, .5, 1, 5},
+		monitoring.WithUnit(monitoring.Seconds),
+	)
+)
+
 type ZtunnelServer interface {
 	Run(ctx context.Context)
 	PodDeleted(ctx context.Context, uid string) error
+	// PodDraining asks ztunnel to drain the inbound HBONE traffic of a pod that started
+	// terminating. It does not wait for ztunnel.
+	PodDraining(ctx context.Context, uid string) error
 	PodAdded(ctx context.Context, pod *v1.Pod, netns Netns) error
 	Close() error
 }
@@ -59,7 +79,27 @@ To clean up stale ztunnels
 
 type connMgr struct {
 	connectionSet []ZtunnelConnection
-	mu            sync.Mutex
+	// The optional protocol features each connection's ztunnel advertised in its hello. A
+	// connection that has not sent its hello yet has no entry.
+	capabilities map[ZtunnelConnection]sets.Set[zdsapi.Capability]
+	mu           sync.Mutex
+}
+
+// setCapabilities records the capabilities a connection's ztunnel advertised in its hello.
+func (c *connMgr) setCapabilities(conn ZtunnelConnection, capabilities []zdsapi.Capability) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.capabilities == nil {
+		c.capabilities = map[ZtunnelConnection]sets.Set[zdsapi.Capability]{}
+	}
+	c.capabilities[conn] = sets.New(capabilities...)
+}
+
+// hasCapability reports whether a connection's ztunnel advertised a capability.
+func (c *connMgr) hasCapability(conn ZtunnelConnection, capability zdsapi.Capability) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.capabilities[conn].Contains(capability)
 }
 
 func (c *connMgr) addConn(conn ZtunnelConnection) {
@@ -99,6 +139,7 @@ func (c *connMgr) deleteConn(conn ZtunnelConnection) {
 		}
 	}
 	c.connectionSet = retainedConns
+	delete(c.capabilities, conn)
 	log.Infof("ztunnel disconnected, total connected %s", len(c.connectionSet))
 	ztunnelConnected.RecordInt(int64(len(c.connectionSet)))
 }
@@ -120,6 +161,14 @@ type ztunnelServer struct {
 	conns             *connMgr
 	pods              PodNetnsCache
 	keepaliveInterval time.Duration
+
+	// drainEnabled turns on DrainWorkload for terminating pods (see PodDraining). When it is off,
+	// nothing is ever drained, exactly as before the feature.
+	drainEnabled bool
+	// draining holds the UIDs of the pods PodDraining was called for and PodDeleted was not, so
+	// a ztunnel that connects while they terminate is told to drain them after its snapshot.
+	draining   sets.String
+	drainingMu sync.Mutex
 }
 
 var _ ZtunnelServer = &ztunnelServer{}
@@ -181,9 +230,16 @@ func (z *ztunnelServer) handleConn(ctx context.Context, conn ZtunnelConnection) 
 		return err
 	}
 
-	log.WithLabels("version", m.Version).Infof("received hello from ztunnel")
+	log.WithLabels("version", m.Version, "capabilities", m.Capabilities).Infof("received hello from ztunnel")
+	// Record the capabilities before reading the draining pods in redrainAfterSnapshot: a
+	// PodDraining racing with this connection then either sees it as capable, or has already
+	// recorded its pod for redrainAfterSnapshot to send.
+	z.conns.setCapabilities(conn, m.Capabilities)
 	log.Debug("sending snapshot to ztunnel")
 	if err := z.sendSnapshot(ctx, conn); err != nil {
+		return err
+	}
+	if err := z.redrainAfterSnapshot(conn); err != nil {
 		return err
 	}
 	for {
@@ -350,6 +406,19 @@ func (c *connMgr) snapshotConns() []ZtunnelConnection {
 	return conns
 }
 
+// snapshotConnsWith is snapshotConns, limited to connections whose ztunnel advertised a capability.
+func (c *connMgr) snapshotConnsWith(capability zdsapi.Capability) []ZtunnelConnection {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	var conns []ZtunnelConnection
+	for _, conn := range c.connectionSet {
+		if c.capabilities[conn].Contains(capability) {
+			conns = append(conns, conn)
+		}
+	}
+	return conns
+}
+
 // PodDeleted sends a pod deletion notification to connected ztunnels.
 //
 // Note that unlike PodAdded, this deletion event is broadcast to *all*
@@ -367,6 +436,10 @@ func (z *ztunnelServer) PodDeleted(ctx context.Context, uid string) error {
 
 	log.Debugf("sending delete pod to all ztunnels: %s %v", uid, r)
 
+	z.drainingMu.Lock()
+	z.draining.Delete(uid)
+	z.drainingMu.Unlock()
+
 	var delErr []error
 
 	for _, conn := range z.conns.snapshotConns() {
@@ -378,4 +451,114 @@ func (z *ztunnelServer) PodDeleted(ctx context.Context, uid string) error {
 		}
 	}
 	return errors.Join(delErr...)
+}
+
+// PodDraining asks connected ztunnels to drain the inbound HBONE traffic of a pod that started
+// terminating. Ztunnel sends a graceful GOAWAY on every inbound HBONE connection to the pod, lets
+// the streams already running finish, and refuses (with REFUSED_STREAM) the new CONNECTs whose
+// client marked them as retriable elsewhere. It serves every other CONNECT as usual, so a client
+// that cannot retry, or has nowhere else to go, is not harmed.
+//
+// Like PodDeleted, this is broadcast to *all* connected ztunnels, as an older ztunnel that is
+// shutting down may still hold connections to the pod. A ztunnel that did not advertise the
+// DRAIN_WORKLOAD capability is skipped. One that connects later, before PodDeleted, is sent the
+// drain after its snapshot (see redrainAfterSnapshot).
+//
+// It does not wait for ztunnel. The pod is leaving service discovery at the same moment, so a drain
+// only helps if it lands promptly, and one slow ztunnel must neither delay the others nor hold up
+// the informer. Failures are logged and counted, and not retried: a late drain is worth nothing,
+// and RemovePodFromMesh still follows. It always returns nil.
+func (z *ztunnelServer) PodDraining(ctx context.Context, uid string) error {
+	if !z.drainEnabled {
+		return nil
+	}
+	// Record the pod before looking for capable connections; see handleConn.
+	z.drainingMu.Lock()
+	if z.draining == nil {
+		z.draining = sets.New[string]()
+	}
+	z.draining.Insert(uid)
+	z.drainingMu.Unlock()
+
+	conns := z.conns.snapshotConnsWith(zdsapi.Capability_DRAIN_WORKLOAD)
+	if len(conns) == 0 {
+		log.WithLabels("uid", uid).Debug("no connected ztunnel supports draining, skipping drain")
+		workloadDrains.With(drainResultLabel.Value("skipped")).Increment()
+		return nil
+	}
+	for _, conn := range conns {
+		go z.sendDrain(ctx, conn, uid)
+	}
+	return nil
+}
+
+// sendDrain sends one DrainWorkload through a connection's update loop, and records the outcome.
+func (z *ztunnelServer) sendDrain(ctx context.Context, conn ZtunnelConnection, uid string) {
+	log := log.WithLabels("conn_uuid", conn.UUID(), "uid", uid)
+	// The update loop waits up to readWriteDeadline for each ack, so allow for one message ahead of
+	// this one. A drain still queued after that is too late to matter.
+	ctx, cancel := context.WithTimeout(ctx, 2*readWriteDeadline)
+	defer cancel()
+	start := time.Now()
+	resp, err := conn.Send(ctx, drainRequest(uid), nil)
+	recordDrain(log, start, resp, err)
+}
+
+// redrainAfterSnapshot sends a newly connected, drain-capable ztunnel a DrainWorkload for every
+// pod in its snapshot that is still draining. This covers a ztunnel that (re)connects, and the CNI
+// agent restarting, while pods terminate. Pods no longer in the snapshot are forgotten. It runs
+// on the connection's own goroutine, before the update loop, like sendSnapshot.
+func (z *ztunnelServer) redrainAfterSnapshot(conn ZtunnelConnection) error {
+	if !z.drainEnabled || !z.conns.hasCapability(conn, zdsapi.Capability_DRAIN_WORKLOAD) {
+		return nil
+	}
+	snap := z.pods.ReadCurrentPodSnapshot()
+	z.drainingMu.Lock()
+	var uids []string
+	for uid := range z.draining {
+		if _, ok := snap[uid]; ok {
+			uids = append(uids, uid)
+		} else {
+			z.draining.Delete(uid)
+		}
+	}
+	z.drainingMu.Unlock()
+
+	for _, uid := range uids {
+		log := log.WithLabels("conn_uuid", conn.UUID(), "uid", uid)
+		log.Debug("sending drain for terminating pod after snapshot")
+		start := time.Now()
+		resp, err := conn.SendMsgAndWaitForAck(drainRequest(uid), nil)
+		recordDrain(log, start, resp, err)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func drainRequest(uid string) *zdsapi.WorkloadRequest {
+	return &zdsapi.WorkloadRequest{
+		Payload: &zdsapi.WorkloadRequest_Drain{
+			Drain: &zdsapi.DrainWorkload{
+				Uid: uid,
+			},
+		},
+	}
+}
+
+func recordDrain(log *istiolog.Scope, start time.Time, resp *zdsapi.WorkloadResponse, err error) {
+	switch {
+	case err != nil:
+		log.Warnf("failed to send drain to ztunnel: %v", err)
+		workloadDrains.With(drainResultLabel.Value("send_error")).Increment()
+	case resp.GetAck().GetError() != "":
+		log.Errorf("drain-workload: got ack error: %s", resp.GetAck().GetError())
+		workloadDrains.With(drainResultLabel.Value("ack_error")).Increment()
+	default:
+		latency := time.Since(start)
+		log.WithLabels("latency", latency).Debug("ztunnel acked pod drain")
+		workloadDrains.With(drainResultLabel.Value("acked")).Increment()
+		workloadDrainLatency.Record(latency.Seconds())
+	}
 }

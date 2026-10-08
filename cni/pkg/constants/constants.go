@@ -48,6 +48,7 @@ const (
 	AmbientDisableSafeUpgrade         = "ambient-disable-safe-upgrade"
 	AmbientReconcilePodRulesOnStartup = "ambient-reconcile-pod-rules-on-startup"
 	EnableAmbientDetectionRetry       = "enable-ambient-detection-retry"
+	AmbientDrainTerminatingWorkloads  = "ambient-drain-terminating-workloads"
 
 	NativeNftables = "native-nftables"
 

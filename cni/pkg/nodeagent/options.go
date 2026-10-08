@@ -59,4 +59,7 @@ type AmbientArgs struct {
 	ReconcilePodRulesOnStartup bool
 	NativeNftables             bool
 	ForceIptablesBinary        string
+	// DrainTerminatingWorkloads has ztunnel drain a pod's inbound HBONE traffic when it starts
+	// terminating. See ZtunnelServer.PodDraining.
+	DrainTerminatingWorkloads bool
 }

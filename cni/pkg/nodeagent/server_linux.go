@@ -100,6 +100,7 @@ func initMeshDataplane(client kube.Client, args AmbientArgs) (*meshDataplane, er
 	if err != nil {
 		return nil, fmt.Errorf("error initializing the ztunnel server: %w", err)
 	}
+	ztunnelServer.drainEnabled = args.DrainTerminatingWorkloads
 
 	hostTrafficManager, podTrafficManager, err := trafficmanager.NewTrafficRuleManager(&trafficmanager.TrafficRuleManagerConfig{
 		NativeNftables: useNftables,
