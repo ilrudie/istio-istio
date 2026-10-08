@@ -84,9 +84,59 @@ func (Version) EnumDescriptor() ([]byte, []int) {
 	return file_zdsapi_zds_proto_rawDescGZIP(), []int{0}
 }
 
+// Optional protocol features. ztunnel lists the ones it supports in ZdsHello; the CNI agent
+// must not send a message a feature introduces unless ztunnel advertised that feature.
+type Capability int32
+
+const (
+	Capability_CAPABILITY_UNSPECIFIED Capability = 0
+	// ztunnel understands DrainWorkload.
+	Capability_DRAIN_WORKLOAD Capability = 1
+)
+
+// Enum value maps for Capability.
+var (
+	Capability_name = map[int32]string{
+		0: "CAPABILITY_UNSPECIFIED",
+		1: "DRAIN_WORKLOAD",
+	}
+	Capability_value = map[string]int32{
+		"CAPABILITY_UNSPECIFIED": 0,
+		"DRAIN_WORKLOAD":         1,
+	}
+)
+
+func (x Capability) Enum() *Capability {
+	p := new(Capability)
+	*p = x
+	return p
+}
+
+func (x Capability) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (Capability) Descriptor() protoreflect.EnumDescriptor {
+	return file_zdsapi_zds_proto_enumTypes[1].Descriptor()
+}
+
+func (Capability) Type() protoreflect.EnumType {
+	return &file_zdsapi_zds_proto_enumTypes[1]
+}
+
+func (x Capability) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use Capability.Descriptor instead.
+func (Capability) EnumDescriptor() ([]byte, []int) {
+	return file_zdsapi_zds_proto_rawDescGZIP(), []int{1}
+}
+
 type ZdsHello struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Version       Version                `protobuf:"varint,1,opt,name=version,proto3,enum=istio.workload.zds.Version" json:"version,omitempty"`
+	Capabilities  []Capability           `protobuf:"varint,2,rep,packed,name=capabilities,proto3,enum=istio.workload.zds.Capability" json:"capabilities,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -126,6 +176,13 @@ func (x *ZdsHello) GetVersion() Version {
 		return x.Version
 	}
 	return Version_NOT_USED
+}
+
+func (x *ZdsHello) GetCapabilities() []Capability {
+	if x != nil {
+		return x.Capabilities
+	}
+	return nil
 }
 
 type WorkloadInfo struct {
@@ -333,6 +390,61 @@ func (x *DelWorkload) GetUid() string {
 	return ""
 }
 
+// Drain a workload's inbound HBONE traffic, typically because it is terminating. Ztunnel sends a
+// graceful GOAWAY on every inbound HBONE connection to the workload, both those open when the
+// message arrives and any accepted afterwards. Streams already running keep running. A new stream
+// (CONNECT) whose client marked it as retriable elsewhere (the `x-istio-drain: refusable` header)
+// is reset with REFUSED_STREAM; any other new stream is served as usual. New HBONE connections
+// are still accepted, so peers learn the workload is draining from the GOAWAY rather than from a
+// TCP refusal. The workload's outbound traffic and DNS are unaffected. Only sent if ztunnel
+// advertised the DRAIN_WORKLOAD capability.
+//
+// Idempotent. A uid ztunnel does not know (or has not started a proxy for yet) has no connections
+// to drain, and is not an error.
+type DrainWorkload struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Uid           string                 `protobuf:"bytes,1,opt,name=uid,proto3" json:"uid,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DrainWorkload) Reset() {
+	*x = DrainWorkload{}
+	mi := &file_zdsapi_zds_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DrainWorkload) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DrainWorkload) ProtoMessage() {}
+
+func (x *DrainWorkload) ProtoReflect() protoreflect.Message {
+	mi := &file_zdsapi_zds_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DrainWorkload.ProtoReflect.Descriptor instead.
+func (*DrainWorkload) Descriptor() ([]byte, []int) {
+	return file_zdsapi_zds_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *DrainWorkload) GetUid() string {
+	if x != nil {
+		return x.Uid
+	}
+	return ""
+}
+
 // Let ztunnel know that a full snapshot was sent. Ztunnel should reconcile its internal state
 // and remove internal entries that were not sent.
 type SnapshotSent struct {
@@ -343,7 +455,7 @@ type SnapshotSent struct {
 
 func (x *SnapshotSent) Reset() {
 	*x = SnapshotSent{}
-	mi := &file_zdsapi_zds_proto_msgTypes[5]
+	mi := &file_zdsapi_zds_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -355,7 +467,7 @@ func (x *SnapshotSent) String() string {
 func (*SnapshotSent) ProtoMessage() {}
 
 func (x *SnapshotSent) ProtoReflect() protoreflect.Message {
-	mi := &file_zdsapi_zds_proto_msgTypes[5]
+	mi := &file_zdsapi_zds_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -368,7 +480,7 @@ func (x *SnapshotSent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SnapshotSent.ProtoReflect.Descriptor instead.
 func (*SnapshotSent) Descriptor() ([]byte, []int) {
-	return file_zdsapi_zds_proto_rawDescGZIP(), []int{5}
+	return file_zdsapi_zds_proto_rawDescGZIP(), []int{6}
 }
 
 // Ztunnel ack message. If error is not empty, this is an error message.
@@ -381,7 +493,7 @@ type Ack struct {
 
 func (x *Ack) Reset() {
 	*x = Ack{}
-	mi := &file_zdsapi_zds_proto_msgTypes[6]
+	mi := &file_zdsapi_zds_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -393,7 +505,7 @@ func (x *Ack) String() string {
 func (*Ack) ProtoMessage() {}
 
 func (x *Ack) ProtoReflect() protoreflect.Message {
-	mi := &file_zdsapi_zds_proto_msgTypes[6]
+	mi := &file_zdsapi_zds_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -406,7 +518,7 @@ func (x *Ack) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Ack.ProtoReflect.Descriptor instead.
 func (*Ack) Descriptor() ([]byte, []int) {
-	return file_zdsapi_zds_proto_rawDescGZIP(), []int{6}
+	return file_zdsapi_zds_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *Ack) GetError() string {
@@ -425,6 +537,7 @@ type WorkloadRequest struct {
 	//	*WorkloadRequest_Keep
 	//	*WorkloadRequest_Del
 	//	*WorkloadRequest_SnapshotSent
+	//	*WorkloadRequest_Drain
 	Payload       isWorkloadRequest_Payload `protobuf_oneof:"payload"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -432,7 +545,7 @@ type WorkloadRequest struct {
 
 func (x *WorkloadRequest) Reset() {
 	*x = WorkloadRequest{}
-	mi := &file_zdsapi_zds_proto_msgTypes[7]
+	mi := &file_zdsapi_zds_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -444,7 +557,7 @@ func (x *WorkloadRequest) String() string {
 func (*WorkloadRequest) ProtoMessage() {}
 
 func (x *WorkloadRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_zdsapi_zds_proto_msgTypes[7]
+	mi := &file_zdsapi_zds_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -457,7 +570,7 @@ func (x *WorkloadRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WorkloadRequest.ProtoReflect.Descriptor instead.
 func (*WorkloadRequest) Descriptor() ([]byte, []int) {
-	return file_zdsapi_zds_proto_rawDescGZIP(), []int{7}
+	return file_zdsapi_zds_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *WorkloadRequest) GetPayload() isWorkloadRequest_Payload {
@@ -503,6 +616,15 @@ func (x *WorkloadRequest) GetSnapshotSent() *SnapshotSent {
 	return nil
 }
 
+func (x *WorkloadRequest) GetDrain() *DrainWorkload {
+	if x != nil {
+		if x, ok := x.Payload.(*WorkloadRequest_Drain); ok {
+			return x.Drain
+		}
+	}
+	return nil
+}
+
 type isWorkloadRequest_Payload interface {
 	isWorkloadRequest_Payload()
 }
@@ -523,6 +645,10 @@ type WorkloadRequest_SnapshotSent struct {
 	SnapshotSent *SnapshotSent `protobuf:"bytes,3,opt,name=snapshot_sent,json=snapshotSent,proto3,oneof"`
 }
 
+type WorkloadRequest_Drain struct {
+	Drain *DrainWorkload `protobuf:"bytes,6,opt,name=drain,proto3,oneof"`
+}
+
 func (*WorkloadRequest_Add) isWorkloadRequest_Payload() {}
 
 func (*WorkloadRequest_Keep) isWorkloadRequest_Payload() {}
@@ -530,6 +656,8 @@ func (*WorkloadRequest_Keep) isWorkloadRequest_Payload() {}
 func (*WorkloadRequest_Del) isWorkloadRequest_Payload() {}
 
 func (*WorkloadRequest_SnapshotSent) isWorkloadRequest_Payload() {}
+
+func (*WorkloadRequest_Drain) isWorkloadRequest_Payload() {}
 
 // Sent from ztunnel to CNI
 type WorkloadResponse struct {
@@ -544,7 +672,7 @@ type WorkloadResponse struct {
 
 func (x *WorkloadResponse) Reset() {
 	*x = WorkloadResponse{}
-	mi := &file_zdsapi_zds_proto_msgTypes[8]
+	mi := &file_zdsapi_zds_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -556,7 +684,7 @@ func (x *WorkloadResponse) String() string {
 func (*WorkloadResponse) ProtoMessage() {}
 
 func (x *WorkloadResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_zdsapi_zds_proto_msgTypes[8]
+	mi := &file_zdsapi_zds_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -569,7 +697,7 @@ func (x *WorkloadResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WorkloadResponse.ProtoReflect.Descriptor instead.
 func (*WorkloadResponse) Descriptor() ([]byte, []int) {
-	return file_zdsapi_zds_proto_rawDescGZIP(), []int{8}
+	return file_zdsapi_zds_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *WorkloadResponse) GetPayload() isWorkloadResponse_Payload {
@@ -602,9 +730,10 @@ var File_zdsapi_zds_proto protoreflect.FileDescriptor
 
 const file_zdsapi_zds_proto_rawDesc = "" +
 	"\n" +
-	"\x10zdsapi/zds.proto\x12\x12istio.workload.zds\"A\n" +
+	"\x10zdsapi/zds.proto\x12\x12istio.workload.zds\"\x85\x01\n" +
 	"\bZdsHello\x125\n" +
-	"\aversion\x18\x01 \x01(\x0e2\x1b.istio.workload.zds.VersionR\aversion\"}\n" +
+	"\aversion\x18\x01 \x01(\x0e2\x1b.istio.workload.zds.VersionR\aversion\x12B\n" +
+	"\fcapabilities\x18\x02 \x03(\x0e2\x1e.istio.workload.zds.CapabilityR\fcapabilities\"}\n" +
 	"\fWorkloadInfo\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1c\n" +
 	"\tnamespace\x18\x02 \x01(\tR\tnamespace\x12'\n" +
@@ -615,22 +744,29 @@ const file_zdsapi_zds_proto_rawDesc = "" +
 	"\fKeepWorkload\x12\x10\n" +
 	"\x03uid\x18\x01 \x01(\tR\x03uid\"\x1f\n" +
 	"\vDelWorkload\x12\x10\n" +
-	"\x03uid\x18\x02 \x01(\tR\x03uid\"\x0e\n" +
+	"\x03uid\x18\x02 \x01(\tR\x03uid\"!\n" +
+	"\rDrainWorkload\x12\x10\n" +
+	"\x03uid\x18\x01 \x01(\tR\x03uid\"\x0e\n" +
 	"\fSnapshotSent\"\x1b\n" +
 	"\x03Ack\x12\x14\n" +
-	"\x05error\x18\x01 \x01(\tR\x05error\"\x87\x02\n" +
+	"\x05error\x18\x01 \x01(\tR\x05error\"\xc2\x02\n" +
 	"\x0fWorkloadRequest\x123\n" +
 	"\x03add\x18\x01 \x01(\v2\x1f.istio.workload.zds.AddWorkloadH\x00R\x03add\x126\n" +
 	"\x04keep\x18\x05 \x01(\v2 .istio.workload.zds.KeepWorkloadH\x00R\x04keep\x123\n" +
 	"\x03del\x18\x02 \x01(\v2\x1f.istio.workload.zds.DelWorkloadH\x00R\x03del\x12G\n" +
-	"\rsnapshot_sent\x18\x03 \x01(\v2 .istio.workload.zds.SnapshotSentH\x00R\fsnapshotSentB\t\n" +
+	"\rsnapshot_sent\x18\x03 \x01(\v2 .istio.workload.zds.SnapshotSentH\x00R\fsnapshotSent\x129\n" +
+	"\x05drain\x18\x06 \x01(\v2!.istio.workload.zds.DrainWorkloadH\x00R\x05drainB\t\n" +
 	"\apayload\"J\n" +
 	"\x10WorkloadResponse\x12+\n" +
 	"\x03ack\x18\x01 \x01(\v2\x17.istio.workload.zds.AckH\x00R\x03ackB\t\n" +
 	"\apayload*\x1f\n" +
 	"\aVersion\x12\f\n" +
 	"\bNOT_USED\x10\x00\x12\x06\n" +
-	"\x02V1\x10\x01B\fZ\n" +
+	"\x02V1\x10\x01*<\n" +
+	"\n" +
+	"Capability\x12\x1a\n" +
+	"\x16CAPABILITY_UNSPECIFIED\x10\x00\x12\x12\n" +
+	"\x0eDRAIN_WORKLOAD\x10\x01B\fZ\n" +
 	"pkg/zdsapib\x06proto3"
 
 var (
@@ -645,33 +781,37 @@ func file_zdsapi_zds_proto_rawDescGZIP() []byte {
 	return file_zdsapi_zds_proto_rawDescData
 }
 
-var file_zdsapi_zds_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_zdsapi_zds_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
+var file_zdsapi_zds_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
+var file_zdsapi_zds_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
 var file_zdsapi_zds_proto_goTypes = []any{
 	(Version)(0),             // 0: istio.workload.zds.Version
-	(*ZdsHello)(nil),         // 1: istio.workload.zds.ZdsHello
-	(*WorkloadInfo)(nil),     // 2: istio.workload.zds.WorkloadInfo
-	(*AddWorkload)(nil),      // 3: istio.workload.zds.AddWorkload
-	(*KeepWorkload)(nil),     // 4: istio.workload.zds.KeepWorkload
-	(*DelWorkload)(nil),      // 5: istio.workload.zds.DelWorkload
-	(*SnapshotSent)(nil),     // 6: istio.workload.zds.SnapshotSent
-	(*Ack)(nil),              // 7: istio.workload.zds.Ack
-	(*WorkloadRequest)(nil),  // 8: istio.workload.zds.WorkloadRequest
-	(*WorkloadResponse)(nil), // 9: istio.workload.zds.WorkloadResponse
+	(Capability)(0),          // 1: istio.workload.zds.Capability
+	(*ZdsHello)(nil),         // 2: istio.workload.zds.ZdsHello
+	(*WorkloadInfo)(nil),     // 3: istio.workload.zds.WorkloadInfo
+	(*AddWorkload)(nil),      // 4: istio.workload.zds.AddWorkload
+	(*KeepWorkload)(nil),     // 5: istio.workload.zds.KeepWorkload
+	(*DelWorkload)(nil),      // 6: istio.workload.zds.DelWorkload
+	(*DrainWorkload)(nil),    // 7: istio.workload.zds.DrainWorkload
+	(*SnapshotSent)(nil),     // 8: istio.workload.zds.SnapshotSent
+	(*Ack)(nil),              // 9: istio.workload.zds.Ack
+	(*WorkloadRequest)(nil),  // 10: istio.workload.zds.WorkloadRequest
+	(*WorkloadResponse)(nil), // 11: istio.workload.zds.WorkloadResponse
 }
 var file_zdsapi_zds_proto_depIdxs = []int32{
 	0, // 0: istio.workload.zds.ZdsHello.version:type_name -> istio.workload.zds.Version
-	2, // 1: istio.workload.zds.AddWorkload.workload_info:type_name -> istio.workload.zds.WorkloadInfo
-	3, // 2: istio.workload.zds.WorkloadRequest.add:type_name -> istio.workload.zds.AddWorkload
-	4, // 3: istio.workload.zds.WorkloadRequest.keep:type_name -> istio.workload.zds.KeepWorkload
-	5, // 4: istio.workload.zds.WorkloadRequest.del:type_name -> istio.workload.zds.DelWorkload
-	6, // 5: istio.workload.zds.WorkloadRequest.snapshot_sent:type_name -> istio.workload.zds.SnapshotSent
-	7, // 6: istio.workload.zds.WorkloadResponse.ack:type_name -> istio.workload.zds.Ack
-	7, // [7:7] is the sub-list for method output_type
-	7, // [7:7] is the sub-list for method input_type
-	7, // [7:7] is the sub-list for extension type_name
-	7, // [7:7] is the sub-list for extension extendee
-	0, // [0:7] is the sub-list for field type_name
+	1, // 1: istio.workload.zds.ZdsHello.capabilities:type_name -> istio.workload.zds.Capability
+	3, // 2: istio.workload.zds.AddWorkload.workload_info:type_name -> istio.workload.zds.WorkloadInfo
+	4, // 3: istio.workload.zds.WorkloadRequest.add:type_name -> istio.workload.zds.AddWorkload
+	5, // 4: istio.workload.zds.WorkloadRequest.keep:type_name -> istio.workload.zds.KeepWorkload
+	6, // 5: istio.workload.zds.WorkloadRequest.del:type_name -> istio.workload.zds.DelWorkload
+	8, // 6: istio.workload.zds.WorkloadRequest.snapshot_sent:type_name -> istio.workload.zds.SnapshotSent
+	7, // 7: istio.workload.zds.WorkloadRequest.drain:type_name -> istio.workload.zds.DrainWorkload
+	9, // 8: istio.workload.zds.WorkloadResponse.ack:type_name -> istio.workload.zds.Ack
+	9, // [9:9] is the sub-list for method output_type
+	9, // [9:9] is the sub-list for method input_type
+	9, // [9:9] is the sub-list for extension type_name
+	9, // [9:9] is the sub-list for extension extendee
+	0, // [0:9] is the sub-list for field type_name
 }
 
 func init() { file_zdsapi_zds_proto_init() }
@@ -679,13 +819,14 @@ func file_zdsapi_zds_proto_init() {
 	if File_zdsapi_zds_proto != nil {
 		return
 	}
-	file_zdsapi_zds_proto_msgTypes[7].OneofWrappers = []any{
+	file_zdsapi_zds_proto_msgTypes[8].OneofWrappers = []any{
 		(*WorkloadRequest_Add)(nil),
 		(*WorkloadRequest_Keep)(nil),
 		(*WorkloadRequest_Del)(nil),
 		(*WorkloadRequest_SnapshotSent)(nil),
+		(*WorkloadRequest_Drain)(nil),
 	}
-	file_zdsapi_zds_proto_msgTypes[8].OneofWrappers = []any{
+	file_zdsapi_zds_proto_msgTypes[9].OneofWrappers = []any{
 		(*WorkloadResponse_Ack)(nil),
 	}
 	type x struct{}
@@ -693,8 +834,8 @@ func file_zdsapi_zds_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_zdsapi_zds_proto_rawDesc), len(file_zdsapi_zds_proto_rawDesc)),
-			NumEnums:      1,
-			NumMessages:   9,
+			NumEnums:      2,
+			NumMessages:   10,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
