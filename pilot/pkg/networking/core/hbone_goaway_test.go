@@ -110,7 +110,7 @@ func TestHBONEGoAwayOptInAndCacheIsolation(t *testing.T) {
 		Attributes: model.ServiceAttributes{Namespace: "default"}}
 	port := &model.Port{Name: "http", Port: 80, Protocol: protocol.HTTP}
 	cg := NewConfigGenTest(t, TestOptions{Services: []*model.Service{svc}})
-	for _, kind := range []model.NodeType{model.Waypoint, model.Router} {
+	for _, kind := range []model.NodeType{model.Waypoint, model.Router, model.SidecarProxy} {
 		var originalKey any
 		for _, shim := range []bool{false, true} {
 			for _, preference := range []bool{false, true} {
@@ -123,7 +123,7 @@ func TestHBONEGoAwayOptInAndCacheIsolation(t *testing.T) {
 				if kind == model.Waypoint {
 					c = cb.buildWaypointInboundVIPCluster(proxy, svc, *port, "http", cg.PushContext().Mesh, nil, nil)
 				} else {
-					// Exercise the same traffic-policy path used for gateway CDS.
+					// Exercise the same traffic-policy path used for sidecar and gateway CDS.
 					c = &cluster.Cluster{ClusterDiscoveryType: &cluster.Cluster_Type{Type: cluster.Cluster_EDS}}
 					cb.applyTrafficPolicy(svc, buildClusterOpts{
 						mutable: &clusterWrapper{cluster: c}, port: port,
