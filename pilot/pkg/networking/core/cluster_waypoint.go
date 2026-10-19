@@ -434,6 +434,13 @@ func (cb *ClusterBuilder) buildOuterConnectOriginateCluster(proxy *model.Proxy, 
 		},
 	}
 
+	// The outer peer is the E/W gateway. Inner GOAWAY must not retire a whole
+	// gateway on behalf of a single remote destination.
+	if cb.hboneGoAwayPreference {
+		c.TypedExtensionProtocolOptions[util.HBONEGoAwayOptions] = protoconv.TypedStructWithFields(
+			util.HBONEGoAwayOptionsType, map[string]any{},
+		)
+	}
 	c.AltStatName = util.DelimitedStatsPrefix(DoubleHBONEOuterConnectOriginate)
 
 	return c
